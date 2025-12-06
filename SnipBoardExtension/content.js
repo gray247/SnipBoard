@@ -1,7 +1,6 @@
-(function () {
-  console.log("[SnipBoard EXT] content.js active");
+(() => {
+  console.log("[SnipBoard EXT] content.js loaded (shadow select mode)");
 
-  const SELECTED_CLASS = "snipboard-selected";
   const MESSAGE_SELECTORS = [
     'article[data-message-id]',
     'article[data-testid^="conversation-turn"]',
@@ -17,6 +16,7 @@
     'div.text-message',
     'div[role="listitem"]'
   ];
+
   const TEXT_CONTAINER_SELECTORS = [
     '[data-testid="message-text"]',
     '[data-testid="message-content"]',
@@ -31,209 +31,287 @@
     ".prose"
   ];
 
-  function readText(node) {
+  let shadowHost = null;
+  let shadowRoot = null;
+  let overlayEl = null;
+  let highlightEl = null;
+  let selectBtn = null;
+  let exitBtn = null;
+  let modeActive = false;
+  let selectedMessages = [];
+  let listenersBound = false;
+
+  const readText = (node) => {
     if (!node) return "";
     const raw =
       typeof node.innerText === "string"
         ? node.innerText
         : node.textContent || "";
-    return raw.trim();
-  }
+    return (raw || "").trim();
+  };
 
-  function injectStyles() {
-    if (document.getElementById("snipboard-styles")) return;
-
-    const style = document.createElement("style");
-    style.id = "snipboard-styles";
-    style.textContent = `
-      .snipboard-checkbox {
-        position: absolute !important;
-        left: -28px !important;
-        top: 10px !important;
-        z-index: 9999 !important;
-      }
-      .snipboard-checkbox input {
-        width: 18px !important;
-        height: 18px !important;
-        transform: scale(1.2);
-        accent-color: #2563eb;
-        cursor: pointer;
-      }
-      article[data-message-id].${SELECTED_CLASS},
-      article[data-testid^="conversation-turn"].${SELECTED_CLASS},
-      article[data-turn].${SELECTED_CLASS},
-      div[data-message-id].${SELECTED_CLASS},
-      div[data-testid="conversation-turn"].${SELECTED_CLASS},
-      div[data-testid="message"].${SELECTED_CLASS},
-      div[data-testid="chat-message"].${SELECTED_CLASS},
-      div[data-testid*="response"].${SELECTED_CLASS},
-      div.user-message-bubble-color.${SELECTED_CLASS},
-      div.assistant-message-bubble-color.${SELECTED_CLASS},
-      div.text-message.${SELECTED_CLASS},
-      div[role="listitem"].${SELECTED_CLASS} {
-        outline: 2px solid #2563eb;
-        background: rgba(37,99,235,0.14);
-        border-radius: 8px;
-      }
-    `;
-    document.head.appendChild(style);
-  }
-
-  function containsTextContainer(node) {
-    return TEXT_CONTAINER_SELECTORS.some(selector => node.querySelector(selector));
-  }
-
-  function looksLikeChatMessage(node) {
+  const looksLikeChatMessage = (node) => {
     if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
-    const text = readText(node);
-    if (!text) return false;
-    const testId = node.getAttribute("data-testid") || "";
-    if (testId && /message|response|assistant|user/i.test(testId) && containsTextContainer(node)) {
-      return true;
-    }
-    return containsTextContainer(node);
-  }
+    if (readText(node).length === 0) return false;
+    return TEXT_CONTAINER_SELECTORS.some((sel) => node.querySelector(sel));
+  };
 
-  function getMessageNodes() {
+  const findMessageNodeFromPoint = (x, y) => {
+    const el = document.elementFromPoint(x, y);
+    if (!el) return null;
+    return el.closest(MESSAGE_SELECTORS.join(","));
+  };
+
+  const safeGetAllMessages = () => {
     const nodes = new Set();
-
-    MESSAGE_SELECTORS.forEach(selector => {
-      document.querySelectorAll(selector).forEach(node => {
-        if (looksLikeChatMessage(node)) {
-          nodes.add(node);
-        }
+    MESSAGE_SELECTORS.forEach((sel) => {
+      document.querySelectorAll(sel).forEach((node) => {
+        if (looksLikeChatMessage(node)) nodes.add(node);
       });
     });
+    return Array.from(nodes)
+      .map((node) => getMessageContent(node))
+      .filter(Boolean);
+  };
 
-    return Array.from(nodes);
-  }
-
-  function attachCheckboxes() {
-    const nodes = getMessageNodes();
-
-    nodes.forEach(node => {
-      if (node.querySelector(".snipboard-checkbox")) return;
-
-      node.style.position = "relative";
-
-      const wrap = document.createElement("div");
-      wrap.className = "snipboard-checkbox";
-
-      const cb = document.createElement("input");
-      cb.type = "checkbox";
-
-      cb.checked = node.classList.contains(SELECTED_CLASS);
-
-      cb.addEventListener("click", e => {
-        e.stopPropagation();
-        node.classList.toggle(SELECTED_CLASS, cb.checked);
-      });
-
-      node.addEventListener("click", e => {
-        if (e.target.tagName === "A") return;
-        cb.checked = !cb.checked;
-        node.classList.toggle(SELECTED_CLASS, cb.checked);
-      });
-
-      wrap.appendChild(cb);
-      node.prepend(wrap);
-    });
-  }
-
-  function getMessageRole(node) {
+  const getMessageRole = (node) => {
     if (!node) return "assistant";
-
     const roleAttr =
       node.getAttribute("data-message-author-role") ||
       node.getAttribute("data-role") ||
       node.getAttribute("data-author") ||
       node.getAttribute("data-user-role") ||
       "";
-
     const match = (roleAttr || "").toLowerCase();
     if (match.includes("assistant") || match.includes("chatgpt")) return "assistant";
     if (match.includes("user") || match.includes("you")) return "user";
-
-    const label = Array.from(node.querySelectorAll("span, strong, div"))
-      .map(el => (el.innerText || "").trim().toLowerCase())
-      .find(txt => txt && (txt.includes("assistant") || txt.includes("chatgpt") || txt.includes("user") || txt === "you"));
-
-    if (label) {
-      if (label.includes("assistant") || label.includes("chatgpt")) return "assistant";
-      if (label.includes("user") || label === "you") return "user";
-    }
-
-    if (node.classList.contains("assistant")) return "assistant";
-    if (node.classList.contains("user")) return "user";
-
     return "assistant";
-  }
-
-  function getMessageContent(node) {
-    if (!node) return "";
-    const container =
-      node.querySelector('[data-testid="message-text"]') ||
-      node.querySelector('[data-testid="message-content"]') ||
-      node.querySelector('[data-testid="message-body"]') ||
-      node.querySelector(".markdown") ||
-      node.querySelector(".result-streaming") ||
-      node.querySelector(".message-inner") ||
-      node.querySelector(".prose") ||
-      node.querySelector(".text-message") ||
-      node.querySelector(".user-message-bubble-color") ||
-      node.querySelector(".assistant-message-bubble-color");
-
-    const text = (container && readText(container)) || readText(node);
-    return text;
-  }
-
-  function collect() {
-    return getMessageNodes()
-      .filter(n => n.classList.contains(SELECTED_CLASS))
-      .map(n => ({
-        role: getMessageRole(n),
-        content: getMessageContent(n)
-      }))
-      .filter(msg => msg.content);
-  }
-
-  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-    if (msg.type === "SNIPBOARD_GET_SELECTION") {
-      sendResponse({ messages: collect() });
-    }
-  });
-
-  const observer = new MutationObserver(() => {
-    attachCheckboxes();
-  });
-
-  function startObserving() {
-    const target = document.body || document.documentElement;
-    if (!target) return;
-    observer.observe(target, {
-      childList: true,
-      subtree: true
-    });
-  }
-
-  injectStyles();
-  attachCheckboxes();
-  startObserving();
-
-  setInterval(attachCheckboxes, 250);
-
-  const contentExports = {
-    MESSAGE_SELECTORS,
-    TEXT_CONTAINER_SELECTORS,
-    getMessageNodes,
-    getMessageRole,
-    getMessageContent,
-    looksLikeChatMessage
   };
 
-  if (typeof module !== "undefined" && module.exports) {
-    module.exports = contentExports;
-  } else if (typeof window !== "undefined") {
-    window.SnipBoardContentModule = contentExports;
-  }
+  const getMessageContent = (node) => {
+    if (!node) return "";
+    const container = TEXT_CONTAINER_SELECTORS.map((sel) => node.querySelector(sel)).find(Boolean);
+    return (container && readText(container)) || readText(node);
+  };
+
+  const createShadowUI = () => {
+    if (shadowRoot) return;
+    shadowHost = document.createElement("div");
+    shadowHost.id = "snipboard-shadow-host";
+    shadowHost.style.position = "fixed";
+    shadowHost.style.inset = "0";
+    shadowHost.style.pointerEvents = "none";
+    shadowHost.style.zIndex = "2147483647";
+    document.documentElement.appendChild(shadowHost);
+
+    shadowRoot = shadowHost.attachShadow({ mode: "closed" });
+
+    const style = document.createElement("style");
+    style.textContent = `
+      :host {
+        all: initial;
+      }
+      .floating-btn {
+        position: fixed;
+        right: 16px;
+        bottom: 16px;
+        padding: 10px 12px;
+        background: #2563eb;
+        color: #fff;
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 600;
+        box-shadow: 0 6px 18px rgba(0,0,0,0.18);
+        cursor: pointer;
+        border: none;
+        outline: none;
+        pointer-events: auto;
+      }
+      .floating-btn.secondary {
+        background: #6b7280;
+        right: 140px;
+      }
+      .overlay {
+        position: fixed;
+        inset: 0;
+        background: transparent;
+        pointer-events: auto;
+        cursor: crosshair;
+      }
+      .highlight {
+        position: fixed;
+        border: 2px solid #2563eb;
+        border-radius: 10px;
+        background: rgba(37,99,235,0.08);
+        pointer-events: none;
+        display: none;
+      }
+    `;
+    shadowRoot.appendChild(style);
+
+    overlayEl = document.createElement("div");
+    overlayEl.className = "overlay";
+    overlayEl.style.display = "none";
+
+    highlightEl = document.createElement("div");
+    highlightEl.className = "highlight";
+
+    selectBtn = document.createElement("button");
+    selectBtn.className = "floating-btn";
+    selectBtn.textContent = "Select Message";
+
+    exitBtn = document.createElement("button");
+    exitBtn.className = "floating-btn secondary";
+    exitBtn.textContent = "Exit Select Mode";
+    exitBtn.style.display = "none";
+
+    shadowRoot.append(selectBtn, exitBtn, overlayEl, highlightEl);
+  };
+
+  const updateHighlight = (node) => {
+    if (!highlightEl) return;
+    if (!node) {
+      highlightEl.style.display = "none";
+      return;
+    }
+    const rect = node.getBoundingClientRect();
+    highlightEl.style.display = "block";
+    highlightEl.style.top = `${rect.top}px`;
+    highlightEl.style.left = `${rect.left}px`;
+    highlightEl.style.width = `${rect.width}px`;
+    highlightEl.style.height = `${rect.height}px`;
+  };
+
+  const deactivateSelectMode = () => {
+    modeActive = false;
+    if (overlayEl) overlayEl.style.display = "none";
+    if (highlightEl) highlightEl.style.display = "none";
+    if (selectBtn) selectBtn.style.display = "block";
+    if (exitBtn) exitBtn.style.display = "none";
+    removeOverlayListeners();
+  };
+
+  const addOverlayListeners = () => {
+    if (!overlayEl || listenersBound) return;
+    listenersBound = true;
+    overlayEl.addEventListener("mousemove", handleHover, true);
+    overlayEl.addEventListener("click", handleClick, true);
+    document.addEventListener("keydown", handleKeydown, true);
+  };
+
+  const removeOverlayListeners = () => {
+    if (!overlayEl || !listenersBound) return;
+    listenersBound = false;
+    overlayEl.removeEventListener("mousemove", handleHover, true);
+    overlayEl.removeEventListener("click", handleClick, true);
+    document.removeEventListener("keydown", handleKeydown, true);
+  };
+
+  const activateSelectMode = () => {
+    createShadowUI();
+    modeActive = true;
+    if (overlayEl) overlayEl.style.display = "block";
+    if (selectBtn) selectBtn.style.display = "none";
+    if (exitBtn) exitBtn.style.display = "block";
+    addOverlayListeners();
+  };
+
+  const extractMessageAtPoint = (x, y) => {
+    if (!modeActive) return null;
+    overlayEl.style.pointerEvents = "none";
+    const node = findMessageNodeFromPoint(x, y);
+    overlayEl.style.pointerEvents = "auto";
+    if (!node || !looksLikeChatMessage(node)) return null;
+    return {
+      node,
+      role: getMessageRole(node),
+      content: getMessageContent(node)
+    };
+  };
+
+  const handleHover = (e) => {
+    if (!modeActive) return;
+    const hit = extractMessageAtPoint(e.clientX, e.clientY);
+    updateHighlight(hit?.node || null);
+  };
+
+  const handleClick = (e) => {
+    if (!modeActive) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const hit = extractMessageAtPoint(e.clientX, e.clientY);
+    if (hit && hit.content) {
+      selectedMessages.push({ role: hit.role, content: hit.content });
+    }
+  };
+
+  const handleKeydown = (e) => {
+    if (e.key === "Escape") {
+      deactivateSelectMode();
+    }
+  };
+
+  const cleanup = () => {
+    deactivateSelectMode();
+    selectedMessages = [];
+    if (shadowHost && shadowHost.parentNode) {
+      shadowHost.parentNode.removeChild(shadowHost);
+    }
+    shadowHost = null;
+    shadowRoot = null;
+    overlayEl = null;
+    highlightEl = null;
+    selectBtn = null;
+    exitBtn = null;
+  };
+
+  const ensureUIBindings = () => {
+    createShadowUI();
+    if (selectBtn && !selectBtn._bound) {
+      selectBtn._bound = true;
+      selectBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        activateSelectMode();
+      });
+    }
+    if (exitBtn && !exitBtn._bound) {
+      exitBtn._bound = true;
+      exitBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        deactivateSelectMode();
+      });
+    }
+  };
+
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (!msg || !msg.type) return;
+    if (msg.type === "SNIPBOARD_GET_ALL_MESSAGES") {
+      sendResponse({ messages: safeGetAllMessages() });
+      return true;
+    }
+    if (msg.type === "SNIPBOARD_SELECT_MODE_ON") {
+      ensureUIBindings();
+      activateSelectMode();
+      sendResponse({ ok: true });
+      return true;
+    }
+    if (msg.type === "SNIPBOARD_SELECT_MODE_OFF") {
+      deactivateSelectMode();
+      sendResponse({ ok: true });
+      return true;
+    }
+    if (msg.type === "SNIPBOARD_GET_SELECTION") {
+      sendResponse({ messages: selectedMessages.slice() });
+      return true;
+    }
+    if (msg.type === "SNIPBOARD_STOP") {
+      cleanup();
+      sendResponse({ ok: true });
+      return true;
+    }
+  });
+
+  ensureUIBindings();
 })();
