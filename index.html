@@ -22,32 +22,62 @@
           <div id="sectionTabs" class="section-tabs"></div>
         </div>
 
-        <div class="filters">
-          <input id="searchInput" placeholder="Search clips" />
-          <input id="tagFilterInput" placeholder="Filter tags (comma separated)" />
-        </div>
-
-        <div class="export-controls">
-          <div class="export-label">Export folder:</div>
-          <div class="export-actions">
-            <button id="setExportBtn" class="ghost">Set export folder</button>
-            <button id="clearExportBtn" class="ghost danger">Clear</button>
+        <div class="toolbar-actions" id="toolbar-right">
+          <div class="quick-tools" id="topbarTools">
+            <input id="searchInput" placeholder="Search..." />
+            <button id="sortToggleBtn" class="tool-btn">Sort</button>
+            <button id="filterToggleBtn" class="tool-btn">Filter</button>
           </div>
-          <div id="exportPathDisplay" class="export-path"></div>
+          <div id="sortMenu" class="tool-menu">
+            <div class="tool-menu__title">Sort</div>
+            <label class="tool-option">
+              <input type="radio" name="sortMode" value="default" checked />
+              Default order
+            </label>
+            <label class="tool-option">
+              <input type="radio" name="sortMode" value="newest" />
+              Newest first
+            </label>
+            <label class="tool-option">
+              <input type="radio" name="sortMode" value="oldest" />
+              Oldest first
+            </label>
+            <label class="tool-option">
+              <input type="radio" name="sortMode" value="title" />
+              Title A-Z
+            </label>
+          </div>
+          <div id="filterMenu" class="tool-menu">
+            <div class="tool-menu__title">Filter</div>
+            <div class="tool-filter">
+              <label for="tagFilterInput">Tags (comma separated)</label>
+              <input id="tagFilterInput" placeholder="tag1, tag2" />
+            </div>
+            <div class="tool-menu__actions">
+              <button id="filterClearBtn" class="ghost">Clear</button>
+              <button id="filterApplyBtn">Apply</button>
+            </div>
+          </div>
+          <div class="export-controls">
+            <div class="export-label">Export folder:</div>
+            <div class="export-actions">
+              <button id="setExportBtn" class="ghost">Set export folder</button>
+              <button id="clearExportBtn" class="ghost danger">Clear</button>
+            </div>
+            <div id="exportPathDisplay" class="export-path"></div>
+          </div>
         </div>
-
-        <div class="toolbar-actions"></div>
       </div>
 
       <div class="content">
         <aside id="clipPane">
-          <div class="list-header">
+        <div class="list-header">
           <div id="clipSidebarHeader" class="sidebar-header">
             <div id="clipTabName"></div>
             <div id="clipTabPath"></div>
           </div>
             <div class="list-controls">
-              <button id="listAddBtn" class="pill" title="New clip in current section">+</button>
+              <button id="listAddBtn" class="pill sidebar-add-btn" title="New clip in current section">+</button>
             </div>
           </div>
           <div id="clipList" class="clip-list"></div>
@@ -66,7 +96,7 @@
             </div>
             <div>
               <label>Section</label>
-              <select id="sectionSelect"></select>
+              <select id="sectionSelect" class="section-select"></select>
             </div>
           </div>
 
@@ -129,10 +159,10 @@
     </div>
 
     <div id="renameModal" class="mini-modal">
-      <div class="mini-modal__content">
+      <div class="mini-modal__content rename-modal__content">
         <div class="mini-modal__header">Rename Tab</div>
-        <input id="renameInput" type="text" />
-        <div class="mini-modal__actions">
+        <input id="renameInput" type="text" class="rename-modal__input" />
+        <div class="mini-modal__actions rename-modal__actions">
           <button id="renameCancelBtn" class="ghost">Cancel</button>
           <button id="renameSaveBtn">Save</button>
         </div>
@@ -151,9 +181,9 @@
     </div>
 
     <div id="iconModal" class="mini-modal">
-      <div class="mini-modal__content">
+      <div class="mini-modal__content icon-modal__content">
         <div class="mini-modal__header">Choose Icon</div>
-        <div id="iconChoices" class="icon-choices"></div>
+        <div id="iconChoices" class="icon-choices icon-grid icon-choose-grid"></div>
         <div class="mini-modal__actions">
           <button id="iconCancelBtn" class="ghost">Cancel</button>
           <button id="iconSaveBtn">Save</button>

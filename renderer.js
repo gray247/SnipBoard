@@ -22,6 +22,8 @@ const state = {
   pendingIconSection: null,
   selectedIcon: "",
   selectedColor: "",
+  pendingRenameSectionId: null,
+  sortMode: "default",
 };
 
 const IPC = {
@@ -45,15 +47,24 @@ const IPC = {
 
 const DEFAULT_SCHEMA = ["title", "text", "screenshots", "tags", "sourceUrl", "sourceTitle", "capturedAt", "notes"];
 const FIELD_OPTIONS = DEFAULT_SCHEMA.slice();
-const SNIPBOARD_COLORS = [
-  "#FF3B30", "#FF9500", "#FFCC00",
-  "#34C759", "#30D158", "#007AFF",
-  "#0A84FF", "#5856D6", "#AF52DE",
-  "#5AC8FA", "#64D2FF", "#FF2D55",
-  "#FF375F", "#FFD60A", "#8E8E93",
-  "#AEAEB2", "#1C1C1E", "#FFFFFF",
-  "#000000", "#32ADE6"
+const TAB_COLORS = [
+  "#FF4F4F", // red
+  "#FF914D", // orange
+  "#FFC145", // yellow-orange
+  "#F7F3D6", // ivory (replaces white)
+  "#7ED957", // green
+  "#3CB371", // dark mint
+  "#2ECCFA", // sky blue
+  "#3A7BEB", // strong blue
+  "#485B9A", // slate blue (replaces black)
+  "#6A5ACD", // soft purple
+  "#A56BF5", // lavender
+  "#FF66C4", // pink
+  "#C13CFF", // violet
+  "#6E6E6E", // medium gray
+  "#CFCFCF",  // light gray
 ];
+const SNIPBOARD_COLORS = TAB_COLORS;
 let searchIndex = new Map();
 let draggingClipId = null;
 function noopInvoke(channel, args) {
@@ -75,12 +86,57 @@ const protectedSections = new Set(["inbox", "common-prompts", "black-skies", "er
 let saveTabsTimer = null;
 let syncingTabs = false;
 const iconChoices = [
-  { key: "inbox", label: "Inbox", icon: "\u{1F4E5}" },
-  { key: "folder", label: "Folder", icon: "\u{1F4C1}" },
-  { key: "test", label: "Test", icon: "\u{1F9EA}" },
-  { key: "errors", label: "Errors", icon: "\u26A0\uFE0F" },
-  { key: "ideas", label: "Ideas", icon: "\u{1F4A1}" },
-  { key: "star", label: "Star", icon: "\u2B50" },
+  { id: "inbox", label: "Inbox", emoji: "\u{1F4E5}" },
+  { id: "folder", label: "Folder", emoji: "\u{1F4C1}" },
+  { id: "test", label: "Flask", svg: '<svg viewBox="0 0 24 24" fill="#2FAACE" xmlns="http://www.w3.org/2000/svg"><path d="M9 3h6v2h-1v3.6l3.7 5.9c.6 1-.1 2.3-1.3 2.3H7.6c-1.2 0-1.9-1.3-1.3-2.3L10 8.6V5H9V3Zm4 7.3 2.3 3.7H8.7L11 10.3V5h2v5.3Z"/></svg>' },
+  { id: "errors", label: "Errors", emoji: "\u26A0\uFE0F" },
+  { id: "ideas", label: "Ideas", emoji: "\u{1F4A1}" },
+  { id: "star", label: "Star", emoji: "\u2B50" },
+  {
+    id: "book",
+    label: "Book",
+    svg: '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="#A8754F" d="M6 4h9a3 3 0 0 1 3 3v14H9a3 3 0 0 0-3-3V4Z"/><path fill="#A8754F" d="M6 8h12v2H6z"/><path fill="#A8754F" d="M6 17a3 3 0 0 1 3 3H6z"/></svg>',
+  },
+  {
+    id: "keyboard",
+    label: "Keyboard",
+    svg: '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="6" width="18" height="12" rx="2" fill="#222222"/><rect x="6" y="9" width="2" height="2" fill="#f5f5f5"/><rect x="9" y="9" width="2" height="2" fill="#f5f5f5"/><rect x="12" y="9" width="2" height="2" fill="#f5f5f5"/><rect x="15" y="9" width="2" height="2" fill="#f5f5f5"/><rect x="18" y="9" width="2" height="2" fill="#f5f5f5"/><rect x="6" y="12" width="12" height="2" fill="#f5f5f5"/></svg>',
+  },
+  {
+    id: "rocket",
+    label: "Rocket",
+    svg: '<svg viewBox="0 0 24 24" fill="#1CA8A6" xmlns="http://www.w3.org/2000/svg"><path d="M13.4 2.2c2.3.1 4.5 1 6.1 2.6l.3.3-6.7 6.7L10.2 8 13.4 2.2ZM9.6 9.3 7.4 7.1c-1.6 1.3-2.7 3-3.2 4.9l2.9-1 2.5 2.5-1 2.9c1.9-.5 3.6-1.6 4.9-3.2l-2.2-2.2-1.7-1.7Zm3.3 5-2.3 2.3c-.7.7-.7 2 0 2.7l.2.2c.7.7 2 .7 2.7 0l2.3-2.3-2.9-2.9Z"/><path d="M6.7 16.8 4.9 18.6l.5 1.9 1.9.5 1.8-1.8-2.4-2.4Z" fill="#1CA8A6"/></svg>',
+  },
+  {
+    id: "bug",
+    label: "Bug",
+    svg: '<svg viewBox="0 0 24 24" fill="#E44D4D" xmlns="http://www.w3.org/2000/svg"><path d="M10.5 3.5c0-.8.7-1.5 1.5-1.5s1.5.7 1.5 1.5V5h-3V3.5ZM8 5c0-.6.4-1 1-1h6c.6 0 1 .4 1 1v.8c1 .6 1.7 1.6 1.9 2.7h1.1c.6 0 1 .4 1 1s-.4 1-1 1h-1v1.5c0 .3 0 .6-.1.9h1.1c.6 0 1 .4 1 1s-.4 1-1 1h-1.6a6 6 0 0 1-5.4 3.1h-.8A6 6 0 0 1 6 15h-1.6c-.6 0-1-.4-1-1s.4-1 1-1h1.1c-.1-.3-.1-.6-.1-.9V11h-1c-.6 0-1-.4-1-1s.4-1 1-1h1.1A3.7 3.7 0 0 1 8 5.8V5Zm2 4a1 1 0 1 0 0 2h4a1 1 0 1 0 0-2h-4Z"/></svg>',
+  },
+  {
+    id: "gear",
+    label: "Gear",
+    svg: '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="#6E6E6E" d="M14.8 3.8c.1-.4.5-.6.9-.5l1.7.7c.4.2.6.6.4 1l-.5 1.3c.5.5.9 1 .1.1 1 .5 1.8 1.2 2.4 2l1-.2c.4-.1.8.1.9.5l.4 1.8c.1.4-.2.9-.6 1l-1.1.3c.1.5.1 1 0 1.5l1.1.3c.4.1.7.6.6 1l-.4 1.8c-.1.4-.5.6-.9.5l-1-.2c-.6.8-1.4 1.5-2.4 2l.5 1.3c.1.4 0 .8-.4 1l-1.7.7c-.4.1-.8 0-1-.4l-.5-1.1c-1 .1-2 0-3-.2l-.5 1.1c-.2.4-.6.5-1 .4l-1.7-.7c-.4-.2-.6-.6-.4-1l.5-1.3c-.9-.5-1.7-1.2-2.4-2l-1 .2c-.4.1-.8-.1-.9-.5l-.4-1.8c-.1-.4.2-.9.6-1l1.1-.3a6.7 6.7 0 0 1 0-1.5l-1.1-.3c-.4-.1-.7-.6-.6-1l.4-1.8c.1-.4.5-.6.9-.5l1 .2c.6-.8 1.4-1.5 2.4-2l-.5-1.3c-.2-.4 0-.8.4-1l1.7-.7c.4-.1.8 0 1 .4l.5 1.1c1-.1 2 0 3 .2l.5-1.1Z"/><circle cx="12" cy="12" r="3" fill="#f5f5f5"/></svg>',
+  },
+  {
+    id: "clock",
+    label: "Clock",
+    svg: '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="8" fill="#708090"/><path stroke="#f8fafc" stroke-width="2" stroke-linecap="round" d="M12 8v4l3 2"/></svg>',
+  },
+  {
+    id: "pencil",
+    label: "Pencil",
+    svg: '<svg viewBox="0 0 24 24" fill="#A56BF5" xmlns="http://www.w3.org/2000/svg"><path d="M14.8 3.3c.4-.4 1.1-.4 1.5 0l2.4 2.4c.4.4.4 1.1 0 1.5L10 16.9l-4.2.9.9-4.2L14.8 3.3Zm-8 13.4 1.5-.4-1.1-1.1-.4 1.5Z"/><path d="m14 5.1 2.9 2.9-1.2 1.2-2.9-2.9 1.2-1.2Z" fill="#8F5BEF"/></svg>',
+  },
+  {
+    id: "cloud",
+    label: "Cloud",
+    svg: '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="#65D1FF" d="M17.5 19H8a5 5 0 1 1 1-9.9 6 6 0 0 1 11 .9A4 4 0 0 1 17.5 19Z"/></svg>',
+  },
+  {
+    id: "globe",
+    label: "Globe",
+    svg: '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="9" fill="#4A90E2"/><path stroke="#e6f4ff" stroke-width="1.5" d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>',
+  },
 ];
 const DEFAULT_TABS = [
   { id: "inbox", label: "Inbox", locked: false, exportFolder: "", color: "", icon: "", order: 0, schema: DEFAULT_SCHEMA.slice() },
@@ -89,6 +145,8 @@ const DEFAULT_TABS = [
   { id: "errors", label: "Errors", locked: false, exportFolder: "", color: "", icon: "", order: 3, schema: DEFAULT_SCHEMA.slice() },
   { id: "misc", label: "Misc", locked: false, exportFolder: "", color: "", icon: "", order: 4, schema: DEFAULT_SCHEMA.slice() },
 ];
+const EXPORT_BASE = "data/exports";
+const EXPORT_BASE = "data/exports";
 // ===============================================================
 // DOM ELEMENTS
 // ===============================================================
@@ -126,6 +184,13 @@ const addShotBtn = document.getElementById("addShotBtn");
 
 const searchInput = document.getElementById("searchInput");
 const tagFilterInput = document.getElementById("tagFilterInput");
+const topbarTools = document.getElementById("topbarTools");
+const sortToggleBtn = document.getElementById("sortToggleBtn");
+const filterToggleBtn = document.getElementById("filterToggleBtn");
+const sortMenu = document.getElementById("sortMenu");
+const filterMenu = document.getElementById("filterMenu");
+const filterApplyBtn = document.getElementById("filterApplyBtn");
+const filterClearBtn = document.getElementById("filterClearBtn");
 const openSourceBtn = document.getElementById("openSourceBtn");
 const listAddBtn = document.getElementById("listAddBtn");
 const deleteSelectedBtn = document.getElementById("deleteSelectedBtn");
@@ -173,6 +238,32 @@ function computeSignature(arr) {
   }
 }
 
+function slugifyTabName(name) {
+  const base = (name || "tab").toString().toLowerCase();
+  const slug = base.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return slug || "tab";
+}
+
+function canonicalExportPath(name) {
+  return `${EXPORT_BASE}/${slugifyTabName(name)}`;
+}
+
+function normalizeExportPath(pathValue, name) {
+  const safeName = name || "tab";
+  const raw = typeof pathValue === "string" ? pathValue.trim() : "";
+  const lowered = raw.toLowerCase().replace(/\\/g, "/");
+  if (!raw || lowered === "data" || lowered === "data/") {
+    return canonicalExportPath(safeName);
+  }
+  if (lowered === "data/exports" || lowered === "data/exports/") {
+    return canonicalExportPath(safeName);
+  }
+  if (/^data\/(?!exports)/.test(lowered)) {
+    return canonicalExportPath(safeName);
+  }
+  return raw;
+}
+
 function getCurrentClip() {
   return state.clips.find(c => c.id === state.currentClipId) || null;
 }
@@ -205,6 +296,42 @@ function applySchemaVisibility(schema) {
   if (sourceUrlCol) sourceUrlCol.style.display = showUrl ? "" : "none";
   if (sourceTitleCol) sourceTitleCol.style.display = showTitle ? "" : "none";
   notesRow.style.display = schemaSet.has("notes") ? "" : "none";
+}
+
+function findIconChoice(value) {
+  if (!value) return null;
+  return iconChoices.find((c) => c.id === value || c.emoji === value || c.icon === value) || null;
+}
+
+function createIconGlyph(choice, fallbackText = "") {
+  const span = document.createElement("span");
+  span.className = "section-pill__icon";
+  if (choice && choice.svg) {
+    span.innerHTML = choice.svg;
+  } else if (choice && (choice.emoji || choice.icon)) {
+    span.textContent = choice.emoji || choice.icon;
+  } else if (fallbackText) {
+    span.textContent = fallbackText;
+  }
+  return span;
+}
+
+function closeQuickMenus() {
+  if (sortMenu) sortMenu.classList.remove("is-open");
+  if (filterMenu) filterMenu.classList.remove("is-open");
+}
+
+function toggleQuickMenu(menuEl) {
+  if (!menuEl) return;
+  const isOpen = menuEl.classList.contains("is-open");
+  closeQuickMenus();
+  if (!isOpen) menuEl.classList.add("is-open");
+}
+
+function applyTagFilterValue(value) {
+  state.tagFilter = value || "";
+  if (tagFilterInput) tagFilterInput.value = state.tagFilter;
+  renderClipList();
 }
 
 function renderColorPalette(container, selectedColor, onSelect, includeNone = false) {
@@ -387,7 +514,12 @@ function openScreenshotEditor(src, filename, clip) {
 }
 
 function normalizeTabs(tabs) {
-  if (!Array.isArray(tabs)) return DEFAULT_TABS.map((t, idx) => ({ ...t, order: idx }));
+  if (!Array.isArray(tabs)) {
+    return DEFAULT_TABS.map((t, idx) => {
+      const path = canonicalExportPath(t.label || t.id || `tab-${idx + 1}`);
+      return { ...t, order: idx, exportPath: path, exportFolder: path };
+    });
+  }
   const sanitizeSchema = (schema) => {
     if (!Array.isArray(schema) || !schema.length) return DEFAULT_SCHEMA.slice();
     const filtered = schema.filter((f) => FIELD_OPTIONS.includes(f));
@@ -398,8 +530,17 @@ function normalizeTabs(tabs) {
       id: t.id || `tab-${idx}`,
       label: t.label || t.name || `Tab ${idx + 1}`,
       locked: Boolean(t.locked),
-      exportFolder: typeof t.exportFolder === "string" ? t.exportFolder : "",
-      exportPath: typeof t.exportPath === "string" ? t.exportPath : (typeof t.exportFolder === "string" ? t.exportFolder : ""),
+      exportFolder: (() => {
+        const name = t.label || t.name || t.id || `tab-${idx + 1}`;
+        const existing = typeof t.exportFolder === "string" ? t.exportFolder : "";
+        return normalizeExportPath(existing || t.exportPath, name);
+      })(),
+      exportPath: (() => {
+        const name = t.label || t.name || t.id || `tab-${idx + 1}`;
+        const existing = typeof t.exportPath === "string" ? t.exportPath : "";
+        const folder = typeof t.exportFolder === "string" ? t.exportFolder : "";
+        return normalizeExportPath(existing || folder, name);
+      })(),
       color: typeof t.color === "string" ? t.color : "",
       icon: typeof t.icon === "string" ? t.icon : "",
       order: Number.isFinite(t.order) ? t.order : idx,
@@ -427,8 +568,8 @@ function sectionsToTabs(sections) {
     id: s.id,
     label: s.name || s.id || `Tab ${idx + 1}`,
     locked: !!s.locked,
-    exportFolder: s.exportFolder || s.exportPath || "",
-    exportPath: s.exportPath || s.exportFolder || "",
+    exportFolder: normalizeExportPath(s.exportFolder || s.exportPath || "", s.name || s.id || `Tab ${idx + 1}`),
+    exportPath: normalizeExportPath(s.exportPath || s.exportFolder || "", s.name || s.id || `Tab ${idx + 1}`),
     color: s.color || "",
     icon: s.icon || "",
     order: Number.isFinite(s.order) ? s.order : idx,
@@ -729,19 +870,16 @@ function renderTabs() {
     if (tab.color) {
       pill.style.backgroundColor = tab.color;
       pill.style.borderColor = tab.color;
-      pill.style.color = "#fff";
+      pill.style.color = "#000";
       pill.classList.add("section-pill--colored");
     }
     let iconSpan = pill.querySelector(".section-pill__icon");
     if (iconSpan) iconSpan.remove();
-    if (tab.icon) {
-      const content = pill.querySelector(".section-pill__content");
-      if (content) {
-        iconSpan = document.createElement("span");
-        iconSpan.className = "section-pill__icon";
-        iconSpan.textContent = tab.icon;
-        content.insertBefore(iconSpan, content.firstChild);
-      }
+    const content = pill.querySelector(".section-pill__content");
+    if (content && tab.icon) {
+      const choice = findIconChoice(tab.icon);
+      iconSpan = createIconGlyph(choice, tab.icon);
+      content.insertBefore(iconSpan, content.firstChild);
     }
   });
 }
@@ -784,7 +922,7 @@ function renderSectionsBar() {
     if (section.color) {
       tabEl.style.backgroundColor = section.color;
       tabEl.style.borderColor = section.color;
-      tabEl.style.color = "#fff";
+      tabEl.style.color = "#000";
       tabEl.classList.add("section-pill--colored");
     }
     tabEl.setAttribute("draggable", "true");
@@ -792,38 +930,15 @@ function renderSectionsBar() {
     const pillContent = document.createElement("div");
     pillContent.className = "section-pill__content";
 
-    if (state.editingSectionId === section.id) {
-      const input = document.createElement("input");
-      input.type = "text";
-      input.value = state.renameDraft || section.label || sectionLabel(section.id);
-      input.className = "section-pill__rename";
-      input.onkeydown = async (e) => {
-        if (e.key === "Enter") {
-          await commitRename(section.id, input.value);
-        } else if (e.key === "Escape") {
-          cancelRename();
-        }
-      };
-      input.onblur = async () => {
-        if (state.editingSectionId === section.id) {
-          await commitRename(section.id, input.value);
-        }
-      };
-      setTimeout(() => input.focus(), 0);
-      pillContent.appendChild(input);
-    } else {
     if (section.icon) {
-      const iconSpan = document.createElement("span");
-      iconSpan.className = "section-pill__icon";
-      iconSpan.textContent = section.icon;
-      pillContent.appendChild(iconSpan);
+      const glyph = createIconGlyph(findIconChoice(section.icon), section.icon);
+      pillContent.appendChild(glyph);
     }
 
     const nameSpan = document.createElement("span");
     nameSpan.textContent = section.label || sectionLabel(section.id);
     pillContent.appendChild(nameSpan);
 
-    }
     tabEl.appendChild(pillContent);
 
     const lockIcon = document.createElement("span");
@@ -988,9 +1103,10 @@ function openSchemaConfigurator(sectionId) {
   const panel = document.createElement("div");
   panel.className = "configure-fields-modal";
   panel.style.background = "#fff";
-  panel.style.padding = "16px";
+  panel.style.padding = "18px";
   panel.style.borderRadius = "10px";
-  panel.style.minWidth = "260px";
+  panel.style.minWidth = "300px";
+  panel.style.maxWidth = "420px";
   panel.style.boxShadow = "0 8px 20px rgba(0,0,0,0.25)";
 
   const header = document.createElement("div");
@@ -1001,6 +1117,9 @@ function openSchemaConfigurator(sectionId) {
 
   const body = document.createElement("div");
   body.className = "configure-fields-body";
+
+  const table = document.createElement("div");
+  table.className = "configure-fields-table";
 
   FIELD_OPTIONS.forEach((field) => {
     const row = document.createElement("div");
@@ -1027,9 +1146,10 @@ function openSchemaConfigurator(sectionId) {
     text.textContent = field;
     row.appendChild(cb);
     row.appendChild(text);
-    body.appendChild(row);
+    table.appendChild(row);
   });
 
+  body.appendChild(table);
   panel.appendChild(body);
 
   const closeBtn = document.createElement("button");
@@ -1045,9 +1165,18 @@ function openSchemaConfigurator(sectionId) {
   document.body.appendChild(overlay);
 }
 
-document.addEventListener("click", () => {
+document.addEventListener("click", (evt) => {
   const menu = document.getElementById("tabContextMenu");
   if (menu) menu.style.display = "none";
+  const target = evt.target;
+  const insideTools =
+    target &&
+    (sortMenu?.contains(target) ||
+      filterMenu?.contains(target) ||
+      sortToggleBtn?.contains(target) ||
+      filterToggleBtn?.contains(target) ||
+      topbarTools?.contains(target));
+  if (!insideTools) closeQuickMenus();
 });
 document.addEventListener("contextmenu", (e) => {
   if (!tabContextMenu) return;
@@ -1055,15 +1184,59 @@ document.addEventListener("contextmenu", (e) => {
   if (within) e.stopPropagation();
 });
 
-function startInlineRename(sectionId) {
-  const sec = state.sections.find((s) => s.id === sectionId);
+function getRenameFocusables() {
+  return [renameInput, renameCancelBtn, renameSaveBtn].filter(Boolean);
+}
+
+function trapFocusRenameModal(e) {
+  if (!renameModal || !renameModal.classList.contains("is-open")) return;
+  if (e.key !== "Tab") return;
+  const focusables = getRenameFocusables();
+  if (!focusables.length) return;
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+  if (e.shiftKey) {
+    if (document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    }
+  } else if (document.activeElement === last) {
+    e.preventDefault();
+    first.focus();
+  }
+}
+
+function closeRenameModal() {
+  state.pendingRenameSectionId = null;
+  state.renameDraft = "";
+  if (renameModal) renameModal.classList.remove("is-open");
+}
+
+function openRenameModal(sectionId) {
+  const sec = state.tabs.find((s) => s.id === sectionId);
   if (!sec || sec.locked) return;
-  state.editingSectionId = sectionId;
-  state.renameDraft = sec.name || "";
-  renderSectionsBar();
+  closeQuickMenus();
+  state.pendingRenameSectionId = sectionId;
+  state.renameDraft = sec.label || sec.name || sectionLabel(sectionId);
+  if (renameInput) {
+    renameInput.value = state.renameDraft;
+    setTimeout(() => {
+      renameInput.focus();
+      renameInput.select();
+    }, 0);
+  }
+  if (renameModal) renameModal.classList.add("is-open");
+}
+
+function startInlineRename(sectionId) {
+  openRenameModal(sectionId);
 }
 
 async function commitRename(sectionId, value) {
+  if (!sectionId) {
+    closeRenameModal();
+    return;
+  }
   const name = (value || "").trim();
   if (!name) {
     cancelRename();
@@ -1071,28 +1244,39 @@ async function commitRename(sectionId, value) {
   }
   await renameSection(sectionId, name);
   const tab = state.tabs.find((t) => t.id === sectionId);
-  if (tab) tab.label = name;
+  if (tab) {
+    tab.label = name;
+    tab.name = name;
+  }
+  const sec = state.sections.find((s) => s.id === sectionId);
+  if (sec) sec.name = name;
   state.sections = tabsToSections(state.tabs);
   state.editingSectionId = null;
+  state.pendingRenameSectionId = null;
   state.renameDraft = "";
   renderSectionsBar();
+  updateSidebarHeader();
   scheduleSaveTabsConfig();
+  window.tabsState = { tabs: state.tabs, activeTabId: state.activeTabId || "all" };
+  await window.api.invoke(IPC.SAVE_TABS, window.tabsState);
+  closeRenameModal();
 }
 
 function cancelRename() {
   state.editingSectionId = null;
-  state.renameDraft = "";
-  renderSectionsBar();
+  closeRenameModal();
 }
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    if (renameModal && renameModal.classList.contains("is-open")) renameModal.classList.remove("is-open");
+    closeRenameModal();
     if (colorModal && colorModal.classList.contains("is-open")) colorModal.classList.remove("is-open");
     if (iconModal && iconModal.classList.contains("is-open")) iconModal.classList.remove("is-open");
+    closeQuickMenus();
     cancelRename();
   }
 });
+document.addEventListener("keydown", trapFocusRenameModal, true);
 
 async function toggleLockSection(sectionId) {
   const sec = state.sections.find((s) => s.id === sectionId);
@@ -1276,6 +1460,20 @@ async function unifiedDelete(ids) {
   renderLockButtonState();
 }
 
+function sortClipsForView(clips) {
+  const list = Array.isArray(clips) ? [...clips] : [];
+  switch (state.sortMode) {
+    case "newest":
+      return list.sort((a, b) => (b.capturedAt || 0) - (a.capturedAt || 0));
+    case "oldest":
+      return list.sort((a, b) => (a.capturedAt || 0) - (b.capturedAt || 0));
+    case "title":
+      return list.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+    default:
+      return list;
+  }
+}
+
 function renderClipList() {
   const clipList = document.getElementById("clipList");
   if (!clipList) return;
@@ -1301,7 +1499,9 @@ function renderClipList() {
     return true;
   });
 
-  filtered.forEach((clip) => {
+  const sorted = sortClipsForView(filtered);
+
+  sorted.forEach((clip) => {
     const row = document.createElement("div");
     row.className = "clip-row";
     if (clip.id === state.currentClipId) row.classList.add("clip-row--active");
@@ -1436,12 +1636,13 @@ async function renderEditor() {
 async function handleCreateTab() {
   const baseName = "New Tab";
   const newSection = await window.api.invoke(IPC.CREATE_SECTION, baseName);
+  const exportPath = canonicalExportPath(newSection.name || baseName);
   const normalized = {
     id: newSection.id,
     name: newSection.name || baseName,
     locked: !!newSection.locked,
-    exportFolder: newSection.exportFolder || "",
-    exportPath: newSection.exportPath || "",
+    exportFolder: normalizeExportPath(newSection.exportFolder || newSection.exportPath || "", newSection.name || baseName) || exportPath,
+    exportPath: normalizeExportPath(newSection.exportPath || newSection.exportFolder || "", newSection.name || baseName) || exportPath,
     color: newSection.color || "",
     icon: newSection.icon || "",
     order: (state.tabs[state.tabs.length - 1]?.order || state.tabs.length) + 1,
@@ -1491,27 +1692,41 @@ async function selectTabColor(sectionId) {
   const sec = state.sections.find((s) => s.id === sectionId);
   if (!sec || !colorModal || !colorSwatches) return;
   state.pendingColorSection = sectionId;
-  const startColor = sec.color && SNIPBOARD_COLORS.includes(sec.color) ? sec.color : (sec.color ? SNIPBOARD_COLORS[0] : "");
-  state.selectedColor = startColor || "";
-  renderColorPalette(colorSwatches, state.selectedColor, (color) => {
-    state.selectedColor = color || "";
-  }, true);
+  const startColor = sec.color || "";
+  state.selectedColor = startColor;
+  const paletteSelection = SNIPBOARD_COLORS.includes(startColor) ? startColor : "";
+  renderColorPalette(
+    colorSwatches,
+    paletteSelection,
+    (color) => {
+      state.selectedColor = color || "";
+    },
+    true
+  );
   colorModal.classList.add("is-open");
 }
 
 async function selectTabIcon(sectionId) {
   const sec = state.sections.find((s) => s.id === sectionId);
   if (!sec || !iconModal || !iconChoicesContainer) return;
+  iconChoicesContainer.classList.add("icon-grid");
   state.pendingIconSection = sectionId;
   state.selectedIcon = sec.icon || "";
   iconChoicesContainer.innerHTML = "";
   iconChoices.forEach((choice) => {
-    const item = document.createElement("div");
-    item.className = "icon-choice" + (state.selectedIcon === choice.icon ? " selected" : "");
-    item.dataset.icon = choice.icon;
-    item.textContent = `${choice.icon} ${choice.label}`;
+    const item = document.createElement("button");
+    item.type = "button";
+    const isSelected = state.selectedIcon === choice.id || state.selectedIcon === choice.emoji || state.selectedIcon === choice.icon;
+    item.className = "icon-choice icon-choice-btn" + (isSelected ? " selected" : "");
+    item.dataset.icon = choice.id || choice.emoji || choice.icon || "";
+    const glyph = document.createElement("span");
+    glyph.className = "icon-choice__glyph";
+    if (choice.svg) glyph.innerHTML = choice.svg;
+    else glyph.textContent = choice.emoji || choice.icon || "";
+    item.appendChild(glyph);
+    item.setAttribute("aria-label", choice.label || choice.id || "icon");
     item.onclick = () => {
-      state.selectedIcon = choice.icon;
+      state.selectedIcon = choice.id || choice.emoji || choice.icon || "";
       iconChoicesContainer.querySelectorAll(".icon-choice").forEach((c) => c.classList.remove("selected"));
       item.classList.add("selected");
     };
@@ -1583,10 +1798,42 @@ function bindHandlersOnce() {
       renderClipList();
     });
   }
+  if (sortToggleBtn) {
+    sortToggleBtn.onclick = () => toggleQuickMenu(sortMenu);
+  }
+  if (filterToggleBtn) {
+    filterToggleBtn.onclick = () => toggleQuickMenu(filterMenu);
+  }
   if (tagFilterInput) {
     tagFilterInput.addEventListener("input", () => {
-      state.tagFilter = tagFilterInput.value || "";
-      renderClipList();
+      applyTagFilterValue(tagFilterInput.value);
+    });
+    tagFilterInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        applyTagFilterValue(tagFilterInput.value);
+        closeQuickMenus();
+      }
+    });
+  }
+  if (filterApplyBtn) {
+    filterApplyBtn.onclick = () => {
+      applyTagFilterValue(tagFilterInput ? tagFilterInput.value : "");
+      closeQuickMenus();
+    };
+  }
+  if (filterClearBtn) {
+    filterClearBtn.onclick = () => {
+      applyTagFilterValue("");
+      closeQuickMenus();
+    };
+  }
+  if (sortMenu) {
+    sortMenu.querySelectorAll("input[name='sortMode']").forEach((radio) => {
+      radio.addEventListener("change", () => {
+        state.sortMode = radio.value || "default";
+        renderClipList();
+        closeQuickMenus();
+      });
     });
   }
 
@@ -1596,6 +1843,31 @@ function bindHandlersOnce() {
       if (!clip || !clip.sourceUrl) return;
       window.api.invoke(IPC.OPEN_URL, clip.sourceUrl);
     };
+  }
+
+  const handleRenameSave = async () => {
+    if (!state.pendingRenameSectionId) {
+      closeRenameModal();
+      return;
+    }
+    await commitRename(state.pendingRenameSectionId, renameInput ? renameInput.value : "");
+  };
+
+  if (renameSaveBtn) renameSaveBtn.onclick = handleRenameSave;
+  if (renameCancelBtn) renameCancelBtn.onclick = closeRenameModal;
+  if (renameInput) {
+    renameInput.addEventListener("keydown", async (e) => {
+      if (e.key === "Enter") {
+        await handleRenameSave();
+      } else if (e.key === "Escape") {
+        closeRenameModal();
+      }
+    });
+  }
+  if (renameModal) {
+    renameModal.addEventListener("click", (e) => {
+      if (e.target === renameModal) closeRenameModal();
+    });
   }
 
   if (setExportBtn) setExportBtn.onclick = null;
@@ -1698,6 +1970,8 @@ async function init() {
     lastPollSignature = computeSignature(state.clips);
     state.searchText = searchInput ? searchInput.value || "" : "";
     state.tagFilter = tagFilterInput ? tagFilterInput.value || "" : "";
+    const checkedSort = sortMenu ? sortMenu.querySelector("input[name='sortMode']:checked") : null;
+    state.sortMode = checkedSort ? (checkedSort.value || "default") : "default";
 
     renderSectionsBar();
     window.tabsState = {
@@ -1756,27 +2030,10 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   const tabsWrapper = sectionTabs && sectionTabs.parentElement;
-  if (tabsWrapper && sectionTabs && !document.getElementById("tabScrollLeft") && !document.getElementById("tabScrollRight")) {
+  if (tabsWrapper && sectionTabs) {
     tabsWrapper.style.position = "relative";
     sectionTabs.style.overflowX = "auto";
     sectionTabs.style.whiteSpace = "nowrap";
-
-    const scrollButton = (dir) => {
-      const btn = document.createElement("button");
-      btn.className = "tab-scroll-btn";
-      btn.id = dir === "left" ? "tabScrollLeft" : "tabScrollRight";
-      btn.textContent = dir === "left" ? "<" : ">";
-      btn.style.position = "absolute";
-      btn.style.top = "50%";
-      btn.style.transform = "translateY(-50%)";
-      btn.style[dir === "left" ? "left" : "right"] = "4px";
-      btn.onclick = () => {
-        sectionTabs.scrollBy({ left: dir === "left" ? -150 : 150, behavior: "smooth" });
-      };
-      tabsWrapper.appendChild(btn);
-    };
-    scrollButton("left");
-    scrollButton("right");
   }
 });
 
@@ -1792,22 +2049,23 @@ async function newSectionCreated(name) {
   if (!base) return;
   try {
     const created = await window.api.invoke(IPC.CREATE_SECTION, base);
-    if (created && created.id) {
-      state.sections.push({
-        id: created.id,
-        name: created.name || base,
-        locked: !!created.locked,
-        exportPath: created.exportPath || "",
-        exportFolder: created.exportFolder || created.exportPath || "",
-        color: created.color || "",
-        icon: created.icon || "",
-      });
-      state.currentSectionId = created.id;
-    } else {
-      const id = base.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9\-]/g, "");
-      state.sections.push({ id: id || base, name: base, locked: false, exportPath: "", exportFolder: "", color: "", icon: "" });
-      state.currentSectionId = id || base;
-    }
+  if (created && created.id) {
+    state.sections.push({
+      id: created.id,
+      name: created.name || base,
+      locked: !!created.locked,
+      exportPath: normalizeExportPath(created.exportPath || created.exportFolder || "", created.name || base) || canonicalExportPath(created.name || base),
+      exportFolder: normalizeExportPath(created.exportFolder || created.exportPath || "", created.name || base) || canonicalExportPath(created.name || base),
+      color: created.color || "",
+      icon: created.icon || "",
+    });
+    state.currentSectionId = created.id;
+  } else {
+    const id = base.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9\-]/g, "");
+    const path = canonicalExportPath(id || base);
+    state.sections.push({ id: id || base, name: base, locked: false, exportPath: path, exportFolder: path, color: "", icon: "" });
+    state.currentSectionId = id || base;
+  }
     renderSections();
     renderClipList();
   } catch (err) {
@@ -1819,16 +2077,33 @@ async function renameSection(id, newName) {
   const name = (newName || "").trim();
   if (!id || !name) return;
   try {
+    const path = canonicalExportPath(name);
     const updated = await window.api.invoke(IPC.RENAME_SECTION, { id, name });
     if (updated && updated.section) {
       const idx = state.sections.findIndex((s) => s.id === id);
-      if (idx >= 0) state.sections[idx] = updated.section;
+      if (idx >= 0) {
+        state.sections[idx] = {
+          ...updated.section,
+          exportPath: normalizeExportPath(updated.section.exportPath || updated.section.exportFolder || path, name),
+          exportFolder: normalizeExportPath(updated.section.exportFolder || updated.section.exportPath || path, name),
+        };
+      }
     } else {
       const target = state.sections.find((s) => s.id === id);
-      if (target) target.name = name;
+      if (target) {
+        target.name = name;
+        target.exportPath = normalizeExportPath(target.exportPath || target.exportFolder || path, name);
+        target.exportFolder = normalizeExportPath(target.exportFolder || target.exportPath || path, name);
+      }
     }
     const tab = state.tabs.find((t) => t.id === id);
-    if (tab) tab.label = name;
+    if (tab) {
+      tab.label = name;
+      tab.name = name;
+      tab.exportFolder = normalizeExportPath(tab.exportFolder || tab.exportPath || path, name);
+      tab.exportPath = normalizeExportPath(tab.exportPath || tab.exportFolder || path, name);
+    }
+    await window.api.invoke(IPC.SET_SECTION_EXPORT_PATH, { id, exportPath: path });
     state.sections = tabsToSections(state.tabs);
     scheduleSaveTabsConfig();
     renderSections();
