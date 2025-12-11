@@ -1,12 +1,14 @@
 (function (global) {
   function initEditor({ state = {}, dom = {}, ipc = {}, helpers = {} } = {}) {
     const app = state;
+    const getRendererApi = () => global.SnipRenderer || {};
+    const callRefreshClipList = () => getRendererApi().refreshClipList?.();
+    const callRefreshEditor = () => getRendererApi().refreshEditor?.();
     const {
       textInput,
       titleInput,
       notesInput,
       tagsInput,
-      screenshotBox,
       capturedAtInput,
       sourceUrlInput,
       sourceTitleInput,
@@ -36,15 +38,44 @@
       toggle(getWrapper(sourceTitleInput), 'sourceTitle');
     };
 
-    const getEditorFieldValues = () => ({
-      title: validateText(titleInput && titleInput.value ? titleInput.value : ''),
-      text: validateText(textInput && textInput.value ? textInput.value : ''),
-      notes: validateText(notesInput && notesInput.value ? notesInput.value : ''),
-      tags: validateText(tagsInput && tagsInput.value ? tagsInput.value : ''),
-      capturedAt: capturedAtInput && capturedAtInput.value ? capturedAtInput.value : '',
-      sourceUrl: validateUrl(sourceUrlInput && sourceUrlInput.value ? sourceUrlInput.value : ''),
-      sourceTitle: validateText(sourceTitleInput && sourceTitleInput.value ? sourceTitleInput.value : ''),
-    });
+    const normalizeTags = (input) => {
+      if (Array.isArray(input)) {
+        return input
+          .map((tag) => (tag ? String(tag).trim() : ''))
+          .filter(Boolean);
+      }
+      if (typeof input === 'string') {
+        return input
+          .split(',')
+          .map((tag) => (tag ? tag.trim() : ''))
+          .filter(Boolean);
+      }
+      return [];
+    };
+
+    const ensureScreenshots = (clip) => {
+      if (!clip) return [];
+      if (!Array.isArray(clip.screenshots)) {
+        clip.screenshots = [];
+      }
+      clip.screenshots = clip.screenshots
+        .map((shot) => (shot ? String(shot).trim() : ''))
+        .filter(Boolean);
+      return clip.screenshots;
+    };
+
+    const getEditorFieldValues = () => {
+      const rawTags = tagsInput && tagsInput.value ? tagsInput.value : '';
+      return {
+        title: validateText(titleInput && titleInput.value ? titleInput.value : ''),
+        text: validateText(textInput && textInput.value ? textInput.value : ''),
+        notes: validateText(notesInput && notesInput.value ? notesInput.value : ''),
+        tags: normalizeTags(rawTags),
+        capturedAt: capturedAtInput && capturedAtInput.value ? capturedAtInput.value : '',
+        sourceUrl: validateUrl(sourceUrlInput && sourceUrlInput.value ? sourceUrlInput.value : ''),
+        sourceTitle: validateText(sourceTitleInput && sourceTitleInput.value ? sourceTitleInput.value : ''),
+      };
+    };
 
     const loadClipIntoEditor = (clip) => {
       const target = clip || getCurrentClip();
@@ -52,28 +83,34 @@
         [titleInput, textInput, notesInput, tagsInput, capturedAtInput, sourceUrlInput, sourceTitleInput].forEach((el) => {
           if (el) el.value = '';
         });
-        if (screenshotBox) screenshotBox.innerHTML = '';
         return;
       }
       if (titleInput) titleInput.value = target.title || '';
       if (textInput) textInput.value = target.text || '';
       if (notesInput) notesInput.value = target.notes || '';
-      if (tagsInput) tagsInput.value = (target.tags || []).join(', ');
+      if (tagsInput) {
+        const normalizedTags = normalizeTags(target.tags);
+        tagsInput.value = normalizedTags.join(', ');
+      }
       if (capturedAtInput) capturedAtInput.value = target.capturedAt ? new Date(target.capturedAt).toISOString().slice(0, 16) : '';
       if (sourceUrlInput) sourceUrlInput.value = target.sourceUrl || '';
       if (sourceTitleInput) sourceTitleInput.value = target.sourceTitle || '';
-      if (screenshotBox) {
-        screenshotBox.innerHTML = (target.screenshots || []).map((shot) => `<div class="thumb">${shot}</div>`).join('');
-      }
       applySchemaVisibility(target.schema || []);
     };
 
     const showToast = (message) => {
+      if (!message) return;
       if (global.SnipToast && typeof global.SnipToast.show === 'function') {
         global.SnipToast.show(message);
-      } else {
-        console.warn('[SnipEditor] Toast missing:', message);
+        return;
       }
+      const toast = document.createElement('div');
+      toast.className = 'sb-toast';
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      setTimeout(() => {
+        toast.remove();
+      }, 2000);
     };
 
     const saveClip = async () => {
@@ -87,11 +124,20 @@
         showToast('Invalid URL.');
         return;
       }
+      const tagsArray = normalizeTags(values.tags);
+      values.tags = tagsArray;
+      clip.title = String(values.title || '');
+      clip.text = String(values.text || '');
+      clip.notes = String(values.notes || '');
+      clip.tags = values.tags;
+      ensureScreenshots(clip);
       Object.assign(clip, values);
       try {
         await executor(CHANNELS.SAVE_CLIP, clip);
         showToast('Clip saved.');
         loadClipIntoEditor(clip);
+        callRefreshClipList();
+        callRefreshEditor();
       } catch (err) {
         console.error('[SnipEditor] saveClip failed', err);
         showToast('Failed to save clip.');
@@ -111,6 +157,8 @@
         app.clips = (app.clips || []).filter((item) => item.id !== clip.id);
         app.currentClipId = null;
         loadClipIntoEditor(null);
+        callRefreshClipList();
+        callRefreshEditor();
       } catch (err) {
         console.error('[SnipEditor] deleteClip failed', err);
         showToast('Failed to delete clip.');

@@ -45,18 +45,20 @@
     const {
       renderColorPalette,
       iconChoices = [],
-      findIconChoice,
-      createIconGlyph,
       updateSection,
       renderSectionsBar,
       renderTabs,
       scheduleSaveTabsConfig,
-      refreshData,
       closeQuickMenus,
       commitRename,
       cancelRename,
       persistClipAppearance,
     } = helpers || {};
+    const sbModal = document.getElementById('sbModal');
+    const sbModalMessage = document.getElementById('sbModalMessage');
+    const sbModalInput = document.getElementById('sbModalInput');
+    const sbModalOk = document.getElementById('sbModalOk');
+    const sbModalCancel = document.getElementById('sbModalCancel');
 
     const toastEl = document.getElementById("toast");
     /**
@@ -79,6 +81,7 @@
     global.SnipToast = {
       error(msg) { showToast(msg, "#c0392b"); },
       success(msg) { showToast(msg, "#2e8b57"); },
+      show(msg) { showToast(msg); },
     };
 
     let pendingClipIconId = null;
@@ -346,6 +349,184 @@
     //   setModalsApi: available through initModals return,
     // }
 
+    const iconGlyphMap = {
+      star: "⭐",
+      gear: "⚙",
+      bug: "🐞",
+      spark: "✨",
+      folder: "📁",
+      idea: "💡",
+      rocket: "🚀",
+    };
+
+    function findIconChoice(value) {
+      if (!value) return null;
+      const normalized = String(value).trim().toLowerCase();
+      const match = iconChoices.find(
+        (choice) =>
+          (choice.id && choice.id.toLowerCase() === normalized) ||
+          (choice.emoji && choice.emoji === value) ||
+          (choice.icon && choice.icon.toLowerCase() === normalized)
+      );
+      if (match) return match;
+      if (iconGlyphMap[normalized]) return { id: normalized, emoji: iconGlyphMap[normalized] };
+      const glyph = Object.values(iconGlyphMap).find((char) => char === value);
+      if (glyph) return { id: value, emoji: glyph };
+      return null;
+    }
+
+    function createIconGlyph(choice) {
+      const glyph = document.createElement("span");
+      glyph.className = "icon-choice__glyph";
+      if (!choice) {
+        glyph.textContent = "⭐";
+        return glyph;
+      }
+      if (typeof choice === "string") {
+        glyph.textContent = choice;
+      } else if (choice.emoji) {
+        glyph.textContent = choice.emoji;
+      } else if (choice.icon) {
+        glyph.textContent = choice.icon;
+      } else if (choice.svg) {
+        glyph.innerHTML = choice.svg;
+      } else {
+        glyph.textContent = iconGlyphMap[choice.id] || "⭐";
+      }
+      return glyph;
+    }
+
+    function refreshData() {
+      const EventCtor = global.CustomEvent || global.Event;
+      if (!EventCtor) return;
+      const event = new EventCtor("snipboard:refresh-data");
+      global.document?.dispatchEvent?.(event);
+    }
+
+    function cleanInput(str) {
+      if (str === null || str === undefined) return "";
+      return String(str).trim().slice(0, 100);
+    }
+
+    function closePromptModal() {
+      if (!sbModal) return;
+      sbModal.hidden = true;
+    }
+
+    function openPromptModal(message, defaultValue = '') {
+      return new Promise((resolve) => {
+        if (!sbModal || !sbModalMessage || !sbModalInput || !sbModalOk || !sbModalCancel) {
+          resolve(null);
+          return;
+        }
+        sbModalMessage.textContent = message || '';
+        sbModalInput.value = defaultValue || '';
+        sbModalInput.style.display = '';
+        sbModal.hidden = false;
+        sbModalInput.focus();
+        const cleanup = () => {
+          sbModalInput.removeEventListener('keydown', keyHandler);
+          sbModalOk.onclick = null;
+          sbModalCancel.onclick = null;
+          closePromptModal();
+        };
+        const ok = () => {
+          cleanup();
+          resolve(sbModalInput.value.trim());
+        };
+        const cancel = () => {
+          cleanup();
+          resolve(null);
+        };
+        const keyHandler = (event) => {
+          if (event.key === 'Enter') {
+            ok();
+          } else if (event.key === 'Escape') {
+            cancel();
+          }
+        };
+        sbModalOk.onclick = ok;
+        sbModalCancel.onclick = cancel;
+        sbModalInput.addEventListener('keydown', keyHandler);
+      });
+    }
+
+    const openTextModal = (message, defaultValue = '') =>
+      openPromptModal(message, defaultValue);
+
+    function openConfirmModal(message) {
+      return new Promise((resolve) => {
+        if (!sbModal || !sbModalMessage || !sbModalOk || !sbModalCancel) {
+          resolve(false);
+          return;
+        }
+        sbModalMessage.textContent = message || '';
+        if (sbModalInput) sbModalInput.style.display = 'none';
+        sbModal.hidden = false;
+        const confirmKeyHandler = (event) => {
+          if (event.key === 'Escape') {
+            cancel();
+          }
+        };
+        const cleanup = () => {
+          if (sbModalInput) {
+            sbModalInput.value = '';
+            sbModalInput.removeEventListener('keydown', confirmKeyHandler);
+            sbModalInput.style.display = '';
+          }
+          sbModalOk.onclick = null;
+          sbModalCancel.onclick = null;
+          closePromptModal();
+        };
+        const ok = () => {
+          cleanup();
+          resolve(true);
+        };
+        const cancel = () => {
+          cleanup();
+          resolve(false);
+        };
+        sbModalOk.onclick = ok;
+        sbModalCancel.onclick = cancel;
+        if (sbModalInput) {
+          sbModalInput.addEventListener('keydown', confirmKeyHandler);
+        }
+      });
+    }
+
+    async function openRenameClipModal(clip, onSave) {
+      if (!clip || typeof onSave !== "function") return;
+      const response = await openTextModal("Rename clip", clip.title || "");
+      const value = cleanInput(response);
+      if (!value) return;
+      onSave(value, clip);
+    }
+
+    async function openChangeClipIconModal(clip, onSave) {
+      if (!clip || typeof onSave !== "function") return;
+      const response = await openTextModal("Icon (emoji or short code)", clip.icon || "");
+      const value = cleanInput(response);
+      if (!value) return;
+      onSave(value, clip);
+    }
+
+    async function openChangeClipColorModal(clip, onSave) {
+      if (!clip || typeof onSave !== "function") return;
+      const current = clip.appearanceColor || clip.color || "";
+      const response = await openTextModal("Color value (e.g. #ffcc00)", current);
+      const value = cleanInput(response);
+      if (!value) return;
+      onSave(value, clip);
+    }
+
+    async function openRenameSectionModal(section, onSave) {
+      if (!section || typeof onSave !== "function") return;
+      const response = await openTextModal("Rename section", section.label || section.name || section.id || "");
+      const value = cleanInput(response);
+      if (!value) return;
+      onSave(value, section);
+    }
+
     return {
       openClipIconPicker,
       openClipColorPicker,
@@ -353,6 +534,15 @@
       closeRenameModal,
       openScreenshotModal,
       closeScreenshotModal,
+      findIconChoice,
+      createIconGlyph,
+      refreshData,
+      openRenameClipModal,
+      openChangeClipIconModal,
+      openChangeClipColorModal,
+      openRenameSectionModal,
+      openPromptModal,
+      openConfirmModal,
     };
   }
 

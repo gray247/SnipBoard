@@ -202,7 +202,7 @@ async function mirrorClipToExport(clip, sections) {
   }
 }
 
-async function persistClip(incomingClip) {
+async function persistClip(incomingClip, options = {}) {
   const { clips, sections } = loadData();
   let clip = clips.find((c) => c.id === incomingClip.id);
   const existing = clip ? { ...clip } : null;
@@ -221,7 +221,9 @@ async function persistClip(incomingClip) {
   }
 
   saveClips(clips);
-  await mirrorClipToExport(clip, sections);
+  if (options.mirror !== false) {
+    await mirrorClipToExport(clip, sections);
+  }
 
   if (existing?.exportFilename) {
     const oldDir = getExportDirForSection(existing.sectionId, sections);
@@ -470,8 +472,8 @@ ipcMain.handle("get-data", async () => {
   return { sections, clips };
 });
 
-ipcMain.handle("save-clip", async (_event, incomingClip) => {
-  return persistClip(incomingClip);
+ipcMain.handle("save-clip", async (_event, incomingClip, options = {}) => {
+  return persistClip(incomingClip, options);
 });
 
 ipcMain.handle("delete-clip", async (_event, id) => {

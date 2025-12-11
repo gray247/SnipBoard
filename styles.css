@@ -30,6 +30,8 @@ body {
   background: #0f4ac6;
   color: #fff;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  position: relative;
+  z-index: 1;
 }
 
 .app-header .brand {
@@ -406,6 +408,12 @@ body {
   outline: 2px solid rgba(47, 107, 255, 0.28);
 }
 
+.clip-row.active {
+  background: #e3ecff;
+  box-shadow: 0 6px 14px rgba(47, 107, 255, 0.18);
+  outline: 2px solid rgba(47, 107, 255, 0.28);
+}
+
 .clip-row--colored {
   border-left: 4px solid var(--clip-accent, #2f6bff);
   background: #f9fbff;
@@ -459,6 +467,16 @@ body {
   flex-shrink: 0;
 }
 
+.clip-thumbnail {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+  margin-right: 8px;
+  display: block;
+}
+
 .clip-row.has-user-color {
   background-color: var(--appearanceColor, #ffffff);
 }
@@ -492,6 +510,26 @@ body {
   padding: 18px 20px;
   overflow-y: auto;
   background: #f9fbff;
+  position: relative;
+  z-index: 5;
+}
+
+#editor .screenshots-container,
+.screenshot-thumb,
+.screenshot-thumb img {
+  position: relative;
+  z-index: 50;
+  pointer-events: auto !important;
+}
+
+#textInput {
+  position: relative;
+  z-index: 1;
+}
+
+.editor-text-wrapper,
+.editor-text-overlay {
+  pointer-events: none !important;
 }
 
 /* ------------------------------------------------------------
@@ -719,6 +757,65 @@ button.ghost {
   z-index: 3500;
 }
 
+.sb-modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 4000;
+}
+
+.sb-modal[hidden],
+.sb-modal.is-hidden {
+  display: none;
+}
+
+.sb-modal-box {
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  width: min(320px, 90vw);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.25);
+}
+
+.sb-modal-message {
+  font-weight: 600;
+  color: #111;
+}
+
+.sb-modal-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #d0d7e2;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.sb-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.sb-toast {
+  position: fixed;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 16px;
+  background: #0f172a;
+  color: #fff;
+  border-radius: 999px;
+  font-size: 13px;
+  opacity: 0.9;
+  z-index: 4500;
+}
+
 .screenshot-editor-dialog {
   background: #fff;
   border-radius: 14px;
@@ -737,6 +834,61 @@ button.ghost {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.screenshot-editor-tool {
+  border: 1px solid #c7d5f5;
+  border-radius: 8px;
+  background: #fff;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #0f172a;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.screenshot-editor-tool.active,
+.screenshot-editor-tool:focus-visible {
+  background: #2f6bff;
+  color: #fff;
+  border-color: #2f6bff;
+  box-shadow: 0 6px 16px rgba(47, 107, 255, 0.2);
+}
+
+.screenshot-editor-color-picker {
+  border: none;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.screenshot-editor-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.screenshot-editor-swatches {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.screenshot-editor-swatches .color-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid #d0d7e2;
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+
+.screenshot-editor-swatches .color-swatch:hover {
+  transform: scale(1.08);
 }
 
 .screenshot-editor-canvas {
@@ -843,16 +995,93 @@ button.ghost {
   max-height: 90vh;
 }
 
+.screenshot-viewer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.screenshot-viewer-dialog {
+  background: #fff;
+  padding: 12px;
+  border-radius: 8px;
+  max-width: 90vw;
+  max-height: 90vh;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+}
+
+.screenshot-viewer-image {
+  max-width: 100%;
+  max-height: 80vh;
+  object-fit: contain;
+}
+
+.screenshot-viewer-close {
+  align-self: flex-end;
+  border: none;
+  background: transparent;
+  font-size: 24px;
+  cursor: pointer;
+}
+
+.screenshot-viewer-backdrop {
+  position: absolute;
+  inset: 0;
+  background: transparent;
+}
+
+.sb-screenshot-menu {
+  background: #ffffff;
+  color: #111;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  padding: 6px 10px;
+  width: 160px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+  position: absolute;
+  z-index: 99999;
+}
+
+.sb-screenshot-menu button,
+.sb-screenshot-menu li {
+  color: #000 !important;
+  background: transparent;
+  padding: 6px 8px;
+  cursor: pointer;
+  width: 100%;
+  border: none;
+  text-align: left;
+  font-size: 14px;
+}
+
+.sb-screenshot-menu button:hover,
+.sb-screenshot-menu li:hover {
+  background: #f0f0f0;
+}
+
 .screenshot-thumb {
-  cursor: zoom-in;
+  cursor: grab;
+  display: inline-flex;
+  padding: 4px;
+  border-radius: 10px;
+  transition: outline 0.15s ease;
 }
 
-.screenshot-thumb.shot--dragging {
-  opacity: 0.6;
+.screenshot-thumb--drag-over {
+  outline: 2px solid rgba(0, 0, 0, 0.25);
 }
 
-.screenshot-thumb.shot--drop-target {
-  outline: 2px solid #3c82f6;
+.screenshot-thumb,
+.screenshot-thumb img {
+  pointer-events: auto !important;
+  position: relative;
+  z-index: 10;
 }
 .editor-actions {
   margin-bottom: 10px;
