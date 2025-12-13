@@ -28,18 +28,30 @@
     const getWrapper = (element) => (element && typeof element.closest === 'function' ? element.closest('div') : null);
 
     const applySchemaVisibility = (schema) => {
-      const schemaSet = new Set(Array.isArray(schema) && schema.length ? schema : DEFAULT_SCHEMA);
+      const normalized = Array.isArray(schema) && schema.length ? schema : DEFAULT_SCHEMA;
+      // Support case differences (e.g., SourceUrl/SourceTitle) without altering schema keys.
+      const schemaSet = new Set(normalized);
+      const schemaLower = new Set(normalized.map((f) => (typeof f === 'string' ? f.toLowerCase() : f)));
+      const matches = (field) => schemaSet.has(field) || schemaLower.has(field.toLowerCase());
       const toggle = (element, field) => {
         if (!element) return;
-        element.style.display = schemaSet.has(field) ? '' : 'none';
+        element.style.display = matches(field) ? '' : 'none';
       };
       toggle(getWrapper(titleInput), 'title');
       toggle(getWrapper(textInput), 'text');
       toggle(getWrapper(notesInput), 'notes');
       toggle(getWrapper(tagsInput), 'tags');
       toggle(getWrapper(capturedAtInput), 'capturedAt');
-      toggle(getWrapper(sourceUrlInput), 'sourceUrl');
-      toggle(getWrapper(sourceTitleInput), 'sourceTitle');
+      const sourceUrlWrapper =
+        (sourceUrlInput && sourceUrlInput.closest && sourceUrlInput.closest('.source-url')) ||
+        (sourceUrlInput && sourceUrlInput.closest && sourceUrlInput.closest('.field-row')) ||
+        (sourceUrlInput ? sourceUrlInput.parentElement : null);
+      const sourceTitleWrapper =
+        (sourceTitleInput && sourceTitleInput.closest && sourceTitleInput.closest('.source-title')) ||
+        (sourceTitleInput && sourceTitleInput.closest && sourceTitleInput.closest('.field-row')) ||
+        (sourceTitleInput ? sourceTitleInput.parentElement : null);
+      toggle(sourceUrlWrapper, 'sourceUrl');
+      toggle(sourceTitleWrapper, 'sourceTitle');
     };
 
     const normalizeTags = (input) => {
@@ -182,6 +194,20 @@
         event.preventDefault();
         deleteClip();
       };
+      // Delegated handler for opening source URL; uses stable data-action hook to avoid layout-dependent selectors.
+      document.addEventListener('click', (event) => {
+        const btn = event.target?.closest?.('[data-action="open-source-url"]');
+        if (!btn) return;
+        event.preventDefault();
+        if (!sourceUrlInput) return;
+        const url = validateUrl(sourceUrlInput.value || '');
+        if (!url) return;
+        if (global.api?.openUrl) {
+          global.api.openUrl(url);
+        } else if (executor) {
+          executor(CHANNELS.OPEN_URL || 'open-url', url);
+        }
+      });
       if (textInput) {
         textInput.addEventListener('dragover', (event) => {
           event.preventDefault();

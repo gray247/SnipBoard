@@ -613,6 +613,7 @@
 
     function openConfigureFieldsModal(tab, onSave) {
       if (!tab || !configureFieldsModal || !configureFieldsList) return;
+      // Modal rows depend on native checkbox styling; CSS overrides are scoped to this container.
       pendingSchemaTabId = tab.id;
       const activeSchema = Array.isArray(tab.schema) && tab.schema.length
         ? tab.schema

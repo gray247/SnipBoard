@@ -606,7 +606,8 @@ label {
   color: #243a66;
 }
 
-input,
+/* Global form inputs (exclude checkboxes to preserve native layout in modals) */
+input:not([type="checkbox"]),
 textarea,
 select {
   width: 100%;
@@ -666,6 +667,32 @@ textarea.tall {
 
 .source-url button {
   height: 38px;
+}
+
+.source-meta-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.source-url-group {
+  flex: 2;
+  min-width: 0;
+}
+
+.source-title-group {
+  flex: 1;
+  min-width: 0;
+}
+
+.source-meta-row input {
+  width: 100%;
+}
+
+.source-url-group .open-btn,
+.source-url-group button {
+  margin-left: 6px;
+  white-space: nowrap;
 }
 
 /* ------------------------------------------------------------
@@ -1420,21 +1447,6 @@ button.ghost {
   text-align: left !important;
 }
 
-#schemaConfigOverlay label {
-  align-items: flex-start !important;
-  justify-content: flex-start !important;
-  text-align: left;
-  gap: 8px;
-}
-
-#schemaConfigOverlay label span {
-  text-align: left;
-}
-
-#schemaConfigOverlay input[type="checkbox"] {
-  margin-top: 2px;
-}
-
 .configure-fields-body {
   text-align: left !important;
   overflow-x: hidden;
@@ -1451,8 +1463,7 @@ button.ghost {
   gap: 6px;
 }
 
-.configure-field-row,
-.configure-fields-row {
+.configure-field-row {
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -1464,14 +1475,12 @@ button.ghost {
   width: 100%;
 }
 
-.configure-field-row input[type="checkbox"],
-.configure-fields-row input[type="checkbox"] {
+.configure-field-row input[type="checkbox"] {
   margin: 0;
   flex-shrink: 0;
 }
 
-.configure-field-row span,
-.configure-fields-row span {
+.configure-field-row span {
   text-transform: capitalize;
   flex: 1;
 }
@@ -1487,9 +1496,18 @@ button.ghost {
   gap: 12px !important;
 }
 
+/* IMPORTANT:
+   Configure Fields modal must opt out of global checkbox styling.
+   Do not remove unless checkbox styles are reworked globally.
+*/
 #configureFieldsModal #configureFieldsList label.configure-field-row input[type="checkbox"] {
   margin: 0 !important;
   flex: none !important;
+  width: auto !important;
+  height: auto !important;
+  appearance: auto !important;
+  -webkit-appearance: checkbox !important;
+  -moz-appearance: checkbox !important;
 }
 
 #configureFieldsModal #configureFieldsList label.configure-field-row span {

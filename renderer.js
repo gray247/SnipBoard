@@ -6,6 +6,7 @@
     normalizeClip,
     updateSearchIndex,
     sectionLabel,
+    FIELD_OPTIONS,
   } = window.SnipState || {};
 
   const {
@@ -46,6 +47,28 @@
     );
     if (currentInSection) return currentInSection;
     return clips.find((clip) => clip.sectionId === targetSection) || null;
+  };
+
+  const normalizeTabSchemas = (tabs = []) => {
+    const options = Array.isArray(FIELD_OPTIONS) && FIELD_OPTIONS.length
+      ? FIELD_OPTIONS
+      : Array.isArray(DEFAULT_SCHEMA) ? DEFAULT_SCHEMA : [];
+    const allowedLower = new Set(options.map((f) => (typeof f === 'string' ? f.toLowerCase() : f)));
+    return (Array.isArray(tabs) ? tabs : []).map((tab) => {
+      const rawSchema = Array.isArray(tab?.schema) ? tab.schema : [];
+      const normalized = rawSchema
+        .map((f) => (typeof f === 'string' ? f.trim() : ''))
+        .filter(Boolean)
+        .map((f) => {
+          const lower = f.toLowerCase();
+          if (!allowedLower.has(lower)) return null;
+          const match = options.find((opt) => typeof opt === 'string' && opt.toLowerCase() === lower);
+          return match || lower;
+        })
+        .filter(Boolean);
+      const schema = normalized.length ? normalized : options.slice();
+      return { ...tab, schema };
+    });
   };
 
   const getCurrentClip = () => resolveClipForSection(getActiveSectionId());
@@ -665,6 +688,7 @@
       if (clipTabPathEl) clipTabPathEl.textContent = '';
       return;
     }
+    // Sidebar header is derived exclusively from renderer state; avoid patching this from other modules.
     const lockedIconEl = document.createElement('span');
     lockedIconEl.className = 'sidebar-lock-icon';
     lockedIconEl.textContent = section.locked ? '🔒' : '🔓';
@@ -820,6 +844,7 @@
   }
   const sourceUrlInput = document.getElementById('sourceUrlInput');
   const sourceTitleInput = document.getElementById('sourceTitleInput');
+  const sourceRow = document.getElementById('sourceRow');
   const screenshotBox = document.getElementById('screenshotContainer');
   if (screenshotBox) screenshotBox.classList.add('screenshots-container');
 
@@ -1014,6 +1039,7 @@
   };
 
   const refreshFull = (selectedClipId, selectedSectionId) => {
+    // Single authoritative full refresh; preserves selection while hydrating from backend state.
     refreshFullQueue = refreshFullQueue.then(async () => {
       try {
         if (selectedClipId) {
@@ -1023,9 +1049,10 @@
           selectedSectionId || state.activeTabId || state.currentSectionId || 'all';
         const data = await api.getData?.();
         const tabsConfig = await safeChannel(CHANNELS.LOAD_TABS);
+        const normalizedTabs = normalizeTabSchemas(tabsConfig?.tabs || state.tabs);
         hydrateState({
           clips: data?.clips,
-          tabs: tabsConfig?.tabs,
+          tabs: normalizedTabs,
           activeTabId: tabsConfig?.activeTabId,
         }, targetSectionId);
         if (selectedClipId) {
@@ -1086,7 +1113,7 @@
   async function refreshSectionsFromBackend() {
     try {
       const tabsConfig = await safeChannel(CHANNELS.LOAD_TABS);
-      state.tabs = tabsConfig?.tabs || state.tabs;
+      state.tabs = normalizeTabSchemas(tabsConfig?.tabs || state.tabs);
       state.activeTabId = tabsConfig?.activeTabId || state.activeTabId;
       refreshSections();
       refreshClipList();

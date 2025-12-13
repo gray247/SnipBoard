@@ -110,6 +110,11 @@
             <div id="screenshotContainer" class="screenshot-strip"></div>
           </div>
 
+          <div class="field-row">
+            <label>Notes</label>
+            <textarea id="notesInput"></textarea>
+          </div>
+
           <div class="field-row split tags-row">
             <div class="tags-col">
               <label>Tags</label>
@@ -121,26 +126,17 @@
             </div>
           </div>
 
-          <div class="field-row">
-            <label>Notes</label>
-            <textarea id="notesInput"></textarea>
-          </div>
-
-          <div id="sourceRow" class="field-row triple-row">
-            <div class="captured-col">
-              <label>Captured At</label>
-              <input id="capturedAtInput" readonly />
-            </div>
-            <div class="source-url">
+          <div class="field-row source-meta-row">
+            <div class="source-url-group">
               <label>Source URL</label>
               <div class="source-input">
                 <input id="sourceUrlInput" />
-                <button id="openSourceBtn" title="Open source URL" class="ghost">
+                <button id="openSourceBtn" data-action="open-source-url" title="Open source URL" class="ghost open-btn">
                   Open
                 </button>
               </div>
             </div>
-            <div class="source-title">
+            <div class="source-title-group">
               <label>Source Title</label>
               <input id="sourceTitleInput" />
             </div>
