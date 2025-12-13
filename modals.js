@@ -132,7 +132,6 @@
     let pendingClipColorId = null;
     let pendingSectionColorCallback = null;
     let pendingSectionIconCallback = null;
-    let pendingSchemaTabId = null;
     const schemaOptions =
       (Array.isArray(global.SnipState?.FIELD_OPTIONS) && global.SnipState.FIELD_OPTIONS.length
         ? global.SnipState.FIELD_OPTIONS
@@ -606,7 +605,6 @@
     }
 
     function closeConfigureFieldsModal() {
-      pendingSchemaTabId = null;
       if (configureFieldsModal) configureFieldsModal.classList.remove("is-open");
       if (configureFieldsList) configureFieldsList.innerHTML = "";
     }
@@ -614,7 +612,6 @@
     function openConfigureFieldsModal(tab, onSave) {
       if (!tab || !configureFieldsModal || !configureFieldsList) return;
       // Modal rows depend on native checkbox styling; CSS overrides are scoped to this container.
-      pendingSchemaTabId = tab.id;
       const activeSchema = Array.isArray(tab.schema) && tab.schema.length
         ? tab.schema
         : (Array.isArray(global.SnipState?.DEFAULT_SCHEMA) ? global.SnipState.DEFAULT_SCHEMA : []);

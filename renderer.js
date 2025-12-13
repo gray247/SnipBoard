@@ -1,3 +1,4 @@
+/* global File */
 (() => {
   const api = window.api || {};
   const {
@@ -22,6 +23,7 @@
 
   const invoke = rawInvoke || (async () => {});
   const safeChannel = safeInvoke || invoke;
+  const SCREENSHOT_BASE_URL = "http://127.0.0.1:4050/screenshots";
 
   const labelForSection = typeof sectionLabel === "function" ? sectionLabel : (id) => id || "Section";
   const state = AppState || {
@@ -33,6 +35,8 @@
     searchQuery: '',
     tagFilter: '',
   };
+
+window.__SNIPBOARD_STATE__ = state;
 
   let refreshFullQueue = Promise.resolve();
 
@@ -193,15 +197,7 @@
       return screenshotUrlCache.get(filename);
     }
     try {
-      const url = await api.getScreenshotUrl?.(filename);
-      if (!url) {
-        if (!missingScreenshotSet.has(filename)) {
-          console.warn('Missing screenshot:', filename);
-          missingScreenshotSet.add(filename);
-        }
-        screenshotUrlCache.set(filename, null);
-        return null;
-      }
+      const url = `${SCREENSHOT_BASE_URL}/${encodeURIComponent(filename)}`;
       screenshotUrlCache.set(filename, url);
       return url;
     } catch {
@@ -305,6 +301,9 @@
       img.style.height = '90px';
       img.style.objectFit = 'cover';
       img.style.borderRadius = '10px';
+      img.onerror = () => {
+        thumb.style.display = 'none';
+      };
       thumb.appendChild(img);
 
       thumb.addEventListener('dragstart', async (event) => {
@@ -313,14 +312,9 @@
         if (filename) {
           try {
             event.dataTransfer.setData('text/plain', filename);
-            const check = await safeChannel?.(CHANNELS.CHECK_SCREENSHOT_PATH, filename);
-            const fullPath = check?.fullPath || '';
-            const fileUrl =
-              (fullPath ? `file://${fullPath.replace(/\\/g, '/')}` : '') ||
-              (await api.getScreenshotUrl?.(filename)) ||
-              '';
-            if (fileUrl) {
-              event.dataTransfer.setData('text/uri-list', fileUrl);
+            const fileUrl = `${SCREENSHOT_BASE_URL}/${encodeURIComponent(filename)}`;
+            event.dataTransfer.setData('text/uri-list', fileUrl);
+            if (typeof File !== 'undefined') {
               try {
                 const response = await fetch(fileUrl);
                 const blob = await response.blob();
@@ -386,11 +380,7 @@
     if (!filename) return;
     const existing = document.querySelector('.screenshot-viewer-overlay');
     if (existing) existing.remove();
-    const url = await api.getScreenshotUrl?.(filename);
-    if (!url) {
-      console.warn('No URL for screenshot', filename);
-      return;
-    }
+    const url = `${SCREENSHOT_BASE_URL}/${encodeURIComponent(filename)}`;
     const overlay = document.createElement('div');
     overlay.className = 'screenshot-viewer-overlay';
     overlay.innerHTML = `
@@ -711,7 +701,17 @@
   }
 
   function refreshClipList() {
+    const prev = new Map((state.clips || []).map((c) => [c.id, c]));
     clipsApi?.renderClipList?.();
+    // Preserve screenshots on any new clip instances added by renderClipList.
+    state.clips = (state.clips || []).map((clip) => {
+      if (Array.isArray(clip.screenshots)) return clip;
+      const prevClip = prev.get(clip.id);
+      if (prevClip && Array.isArray(prevClip.screenshots)) {
+        return { ...clip, screenshots: prevClip.screenshots.slice() };
+      }
+      return clip;
+    });
     refreshClipThumbnails();
   }
 
@@ -736,8 +736,11 @@
     }
     refreshSectionSelect();
     editorApi?.loadClipIntoEditor?.(clip);
+    const tabSchema = tabsApi?.getActiveTabSchema?.();
     const schema =
-      tabsApi?.getActiveTabSchema?.() || clip?.schema || DEFAULT_SCHEMA;
+      (Array.isArray(tabSchema) && tabSchema.length ? tabSchema : null) ||
+      (Array.isArray(clip?.schema) && clip.schema.length ? clip.schema : null) ||
+      DEFAULT_SCHEMA;
     editorApi?.applySchemaVisibility?.(schema);
     const allowScreenshots = Array.isArray(schema) ? schema.includes('screenshots') : true;
     if (!allowScreenshots) {
@@ -844,7 +847,6 @@
   }
   const sourceUrlInput = document.getElementById('sourceUrlInput');
   const sourceTitleInput = document.getElementById('sourceTitleInput');
-  const sourceRow = document.getElementById('sourceRow');
   const screenshotBox = document.getElementById('screenshotContainer');
   if (screenshotBox) screenshotBox.classList.add('screenshots-container');
 
@@ -975,6 +977,8 @@
   if (clipsApi?.setModalsApi) clipsApi.setModalsApi(modalsApi);
 
   tabsApi?.onTabChange?.((tab) => {
+    screenshotUrlCache.clear();
+    missingScreenshotSet.clear();
     state.activeTabId = tab?.id || 'all';
     state.currentSectionId = state.activeTabId;
     refreshSections();
@@ -996,11 +1000,20 @@
   let lastSignature = '';
 
   const hydrateState = (payload = {}, selectedSectionId) => {
+    const prevById = new Map((state.clips || []).map((clip) => [clip.id, clip]));
     const prevActive = selectedSectionId || state.activeTabId || state.currentSectionId;
     const prevClip = state.currentClipId;
     state.clips = (payload.clips || state.clips || [])
-      .map(normalizeClip)
-      .map((clip) => sanitizeClipData(clip));
+      .map((clip) => {
+        const normalized = normalizeClip(clip);
+        if (!Array.isArray(normalized.screenshots)) {
+          const prev = prevById.get(normalized.id);
+          if (prev && Array.isArray(prev.screenshots)) {
+            normalized.screenshots = prev.screenshots.slice();
+          }
+        }
+        return sanitizeClipData(normalized);
+      });
     state.tabs = payload.tabs || state.tabs;
     const tabsList = state.tabs || [];
     const targetSection = selectedSectionId || prevActive;

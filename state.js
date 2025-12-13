@@ -73,9 +73,9 @@
    *   sortMode: string
    *   lockedSections: Set<string>
    *   draggingClipId: string|null
-   *   searchIndex: Map<string,string>
-   * }
-   */
+  *   searchIndex: Map<string,string>
+  * }
+  */
   const AppState = {
     sections: [],
     clips: [],
@@ -94,7 +94,7 @@
     selectedColor: "",
     pendingRenameSectionId: null,
     sortMode: "default",
-    lockedSections: new Set(["common-prompts"]),
+    lockedSections: new Set(),
     draggingClipId: null,
     searchIndex: new Map(),
   };

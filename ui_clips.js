@@ -303,7 +303,7 @@
                 `<strong>${safeTitle}</strong><br/>${safeBody}`
               );
               event.dataTransfer.effectAllowed = 'copyMove';
-            } catch (_) {
+            } catch {
               // ignore if dataTransfer is unavailable
             }
           }
@@ -334,6 +334,9 @@
 
         clipListEl.appendChild(row);
       });
+
+      const rendererApi = getRendererApi();
+      rendererApi.refreshClipThumbnails?.();
     };
 
     if (clipListEl) {

@@ -1,19 +1,59 @@
 const { app, BrowserWindow, ipcMain, desktopCapturer, clipboard, shell, dialog, screen } = require("electron");
+const crypto = require("crypto");
 const http = require("http");
 const path = require("path");
 const fs = require("fs");
 
-const BASE_DATA_DIR = path.join("C:\\Dev2\\SnipBoard", "data");
+const LEGACY_BASE_DATA_DIR = path.join("C:\\Dev2\\SnipBoard", "data");
+const BASE_DATA_DIR = path.join(app.getPath("userData"), "SnipBoard");
 const DATA_DIR = BASE_DATA_DIR;
 const CLIPS_FILE = path.join(DATA_DIR, "clips.json");
 const SECTIONS_FILE = path.join(DATA_DIR, "sections.json");
 const SCREENSHOTS_DIR = path.join(DATA_DIR, "screenshots");
+const LEGACY_SCREENSHOTS_DIR = path.join(LEGACY_BASE_DATA_DIR, "screenshots");
 const SECTION_DIR = path.join(DATA_DIR, "sections");
 const TABS_FILE = path.join(DATA_DIR, "tabs.json");
 const CONFIG_FILE = path.join(DATA_DIR, "config.json");
+const TOKEN_FILE = path.join(DATA_DIR, "http-bridge-token.txt");
 const INVALID_FILENAME_CHARS = new RegExp("[\\\\/?%*:|\"<>]", "g");
+const MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024; // 10 MB
+const ALLOWED_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/jpg"]);
+const TOKEN_HEADER_NAME = "x-snipboard-token";
+const missingServedScreenshots = new Set();
+
+function migrateLegacyBaseDir() {
+  try {
+    const legacyExists = fs.existsSync(LEGACY_BASE_DATA_DIR);
+    const newExists = fs.existsSync(BASE_DATA_DIR);
+    if (legacyExists && !newExists) {
+      ensureDir(path.dirname(BASE_DATA_DIR));
+      fs.cpSync(LEGACY_BASE_DATA_DIR, BASE_DATA_DIR, { recursive: true, errorOnExist: false });
+      console.log(`[SnipBoard] Migrated data from legacy path to ${BASE_DATA_DIR}`);
+    }
+  } catch (err) {
+    console.warn("[SnipBoard] Legacy data migration failed:", err);
+  }
+}
+
+function getBridgeToken() {
+  try {
+    ensureDir(DATA_DIR);
+    if (fs.existsSync(TOKEN_FILE)) {
+      const existing = fs.readFileSync(TOKEN_FILE, "utf8").trim();
+      if (existing) return existing;
+    }
+    const token = crypto.randomBytes(32).toString("hex");
+    fs.writeFileSync(TOKEN_FILE, token, "utf8");
+    return token;
+  } catch (err) {
+    console.error("[SnipBoard] Failed to initialize bridge token:", err);
+    // Fallback to an in-memory token to avoid crashing; regenerated each run on failure.
+    return crypto.randomBytes(32).toString("hex");
+  }
+}
 
 function migrateDataFiles() {
+  migrateLegacyBaseDir();
   const oldDataDir = path.join(__dirname, "data");
   const oldTabsFile = path.join(app.getPath("userData"), "tabs.json");
   const targets = [
@@ -342,27 +382,60 @@ async function handleHttpRequest(req, res) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
   res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-SnipBoard-Token");
+  const token = getBridgeToken();
+  const requestToken = req.headers[TOKEN_HEADER_NAME] || req.headers[TOKEN_HEADER_NAME.toLowerCase()];
+  const normalizedPath = (req.url || "").split("?")[0] || "";
+  const isScreenshotGet = req.method === "GET" && normalizedPath.startsWith("/screenshots/");
+  if (isScreenshotGet) {
+    let decodedName = "";
+    try {
+      decodedName = decodeURIComponent(normalizedPath.replace("/screenshots/", ""));
+    } catch {
+      sendJsonResponse(res, 400, { ok: false, error: "Invalid screenshot filename" });
+      return;
+    }
+    const normalized = path.normalize(decodedName);
+    const hasTraversal = normalized.includes("..") || /[\\/]/.test(normalized);
+    const resolvedPath = path.resolve(SCREENSHOTS_DIR, normalized);
+    const baseDir = path.resolve(SCREENSHOTS_DIR);
+    const insideScreenshots = resolvedPath === baseDir || resolvedPath.startsWith(baseDir + path.sep);
+    if (hasTraversal || !insideScreenshots) {
+      sendJsonResponse(res, 400, { ok: false, error: "Invalid screenshot filename" });
+      return;
+    }
+    let servePath = resolvedPath;
+    if (!fs.existsSync(servePath)) {
+      const legacyResolved = path.resolve(LEGACY_SCREENSHOTS_DIR, normalized);
+      const legacyBase = path.resolve(LEGACY_SCREENSHOTS_DIR);
+      const insideLegacy = legacyResolved === legacyBase || legacyResolved.startsWith(legacyBase + path.sep);
+      if (insideLegacy && fs.existsSync(legacyResolved)) {
+        servePath = legacyResolved;
+      } else {
+        if (!missingServedScreenshots.has(normalized)) {
+          console.warn("[SnipBoard] Screenshot not found:", normalized);
+          missingServedScreenshots.add(normalized);
+        }
+        res.writeHead(404);
+        res.end();
+        return;
+      }
+    }
+    const stream = fs.createReadStream(servePath);
+    res.writeHead(200, { "Content-Type": "image/png" });
+    stream.pipe(res);
+    return;
+  }
   if (req.method === "OPTIONS") {
     res.writeHead(200);
     res.end();
     return;
   }
-
-  const normalizedPath = (req.url || "").split("?")[0] || "";
-  if (req.method === "GET" && normalizedPath.startsWith("/screenshots/")) {
-    const filename = decodeURIComponent(normalizedPath.replace("/screenshots/", ""));
-    const filePath = path.join(SCREENSHOTS_DIR, filename);
-    if (!fs.existsSync(filePath)) {
-      res.writeHead(404);
-      res.end();
-      return;
-    }
-    const stream = fs.createReadStream(filePath);
-    res.writeHead(200, { "Content-Type": "image/png" });
-    stream.pipe(res);
+  if (!requestToken || requestToken !== token) {
+    sendJsonResponse(res, 403, { ok: false, error: "Forbidden: invalid or missing token" });
     return;
   }
+
   if (req.method !== "POST" || normalizedPath !== "/add-clip") {
     sendJsonResponse(res, 404, { ok: false, error: "Not found" });
     return;
@@ -408,6 +481,15 @@ function startHttpBridge() {
     console.error("[SnipBoard http] Server error:", err);
   });
 
+  httpServer.once("error", (err) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(`[SnipBoard http] Port ${HTTP_PORT} already in use; HTTP bridge not started.`);
+    } else {
+      console.error("[SnipBoard http] Failed to start server:", err);
+    }
+    httpServer = null;
+  });
+
   httpServer.listen(HTTP_PORT, HTTP_HOST, () => {
     console.log(`[SnipBoard http] Listening on http://${HTTP_HOST}:${HTTP_PORT}`);
   });
@@ -447,6 +529,7 @@ app.whenReady().then(() => {
   ensureDir(DATA_DIR);
   ensureDir(SCREENSHOTS_DIR);
   migrateDataFiles();
+  console.log("[SnipBoard] Screenshots directory:", path.resolve(SCREENSHOTS_DIR));
   createWindow();
   startHttpBridge();
 
@@ -651,8 +734,25 @@ ipcMain.handle("save-screenshot", async (_event, payload) => {
 
     for (const item of items) {
       if (!item || !item.dataUrl) continue;
-      const base64 = item.dataUrl.split(",")[1];
-      if (!base64) continue;
+      if (typeof item.dataUrl !== "string") {
+        throw new Error("Invalid screenshot payload: missing dataUrl");
+      }
+      const dataUrlParts = item.dataUrl.split(",");
+      if (dataUrlParts.length < 2) {
+        throw new Error("Invalid screenshot payload: malformed data URL");
+      }
+      const header = dataUrlParts[0] || "";
+      const base64 = dataUrlParts.slice(1).join(",");
+      const mimeMatch = /^data:([^;]+);base64$/i.exec(header.trim());
+      const mimeType = mimeMatch ? mimeMatch[1].toLowerCase() : "";
+      if (!ALLOWED_IMAGE_MIME_TYPES.has(mimeType)) {
+        throw new Error("Invalid screenshot payload: unsupported image type");
+      }
+      const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+      const estimatedBytes = Math.floor((base64.length * 3) / 4) - padding;
+      if (!Number.isFinite(estimatedBytes) || estimatedBytes <= 0 || estimatedBytes > MAX_SCREENSHOT_BYTES) {
+        throw new Error("Invalid screenshot payload: file too large");
+      }
       const fallbackShotName = `shot-${Date.now()}-${Math.random().toString(16).slice(2)}.png`;
       const rawName =
         typeof item.filename === "string" && item.filename.trim()
@@ -661,7 +761,7 @@ ipcMain.handle("save-screenshot", async (_event, payload) => {
       const filename = sanitizeFilename(rawName) || fallbackShotName;
       const buffer = globalThis.Buffer.from(base64, "base64");
       const filePath = path.join(SCREENSHOTS_DIR, filename);
-      fs.writeFileSync(filePath, buffer);
+      await fs.promises.writeFile(filePath, buffer);
       results.push({ filename, fullPath: filePath });
     }
 
@@ -818,21 +918,21 @@ async function saveAllMonitorScreenshots() {
   const timestamp = Date.now();
   const files = [];
 
-  captures.forEach((capture) => {
+  for (const capture of captures) {
     const fileName = `Monitor-${capture.index + 1}-${timestamp}.png`;
     const filePath = path.join(SCREENSHOTS_DIR, fileName);
     if (!capture.buffer || capture.buffer.length < 1000) {
       console.warn("[SnipBoard] Ignoring empty capture for", capture.id);
-      return;
+      continue;
     }
-    fs.writeFileSync(filePath, capture.buffer);
+    await fs.promises.writeFile(filePath, capture.buffer);
     files.push({
       filename: fileName,
       buffer: capture.buffer,
       dataUrl: "data:image/png;base64," + capture.buffer.toString("base64"),
       path: filePath,
     });
-  });
+  }
 
   console.log("[SnipBoard] Multi-monitor capture:", {
     requested: captures.length,
