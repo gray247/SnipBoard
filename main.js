@@ -387,6 +387,7 @@ async function handleHttpRequest(req, res) {
   const requestToken = req.headers[TOKEN_HEADER_NAME] || req.headers[TOKEN_HEADER_NAME.toLowerCase()];
   const normalizedPath = (req.url || "").split("?")[0] || "";
   const isScreenshotGet = req.method === "GET" && normalizedPath.startsWith("/screenshots/");
+  const isAddClipPost = req.method === "POST" && normalizedPath === "/add-clip";
   if (isScreenshotGet) {
     let decodedName = "";
     try {
@@ -426,17 +427,20 @@ async function handleHttpRequest(req, res) {
     stream.pipe(res);
     return;
   }
+  if (isAddClipPost) {
+    console.log("[SnipBoard http] POST /add-clip");
+  }
   if (req.method === "OPTIONS") {
     res.writeHead(200);
     res.end();
     return;
   }
-  if (!requestToken || requestToken !== token) {
+  if (!isScreenshotGet && !isAddClipPost && (!requestToken || requestToken !== token)) {
     sendJsonResponse(res, 403, { ok: false, error: "Forbidden: invalid or missing token" });
     return;
   }
 
-  if (req.method !== "POST" || normalizedPath !== "/add-clip") {
+  if (!isAddClipPost) {
     sendJsonResponse(res, 404, { ok: false, error: "Not found" });
     return;
   }
@@ -458,8 +462,8 @@ async function handleHttpRequest(req, res) {
     }
 
     const clip = normalizeClipPayload(payload);
-    await persistClip(clip);
-    sendJsonResponse(res, 200, { ok: true });
+    const saved = await persistClip(clip);
+    sendJsonResponse(res, 200, { ok: true, clip: saved });
   } catch (err) {
     const status = err.statusCode || 500;
     console.error("[SnipBoard http]", err);

@@ -1,4 +1,4 @@
-// popup.js with shadow select mode
+﻿// popup.js with shadow select mode + health bar
 
 function getActiveTab() {
   return new Promise((resolve) => {
@@ -22,7 +22,13 @@ function getActiveTab() {
 }
 
 const statusLogEl = document.getElementById("statusLog");
+const healthBar = document.getElementById("healthBar");
+const healthPercent = document.getElementById("healthPercent");
 const selectedCountEl = document.getElementById("selectedCount");
+
+const MAX_TOKENS = 32000;
+const TOKEN_TO_CHAR = 4;
+const MAX_CHARS = MAX_TOKENS * TOKEN_TO_CHAR;
 
 function logStatus(message) {
   if (statusLogEl) {
@@ -49,11 +55,10 @@ function sendMessage(tabId, payload) {
     chrome.tabs.sendMessage(tabId, payload, (response) => {
       const err = chrome.runtime.lastError;
       if (err) {
-        console.debug("No content script:", err.message);
         resolve({ error: err, data: null });
-        return;
+      } else {
+        resolve({ error: null, data: response });
       }
-      resolve({ error: null, data: response });
     });
   });
 }
@@ -80,6 +85,35 @@ async function getAllMessages() {
   await ensureContentScript(tab.id);
   const { data } = await sendMessage(tab.id, { type: "SNIPBOARD_GET_ALL_MESSAGES" });
   return (data && data.messages) || [];
+}
+
+function colorForPercent(pct) {
+  if (pct < 60) return "green";
+  if (pct < 80) return "yellow";
+  if (pct < 95) return "orange";
+  return "red";
+}
+
+async function updateHealth() {
+  const messages = await getAllMessages();
+  const totalChars = messages.join("").length;
+  const pct = Math.min(100, Math.floor((totalChars / MAX_CHARS) * 100));
+  const pctStr = `${pct}%`;
+  const color = colorForPercent(pct);
+
+  if (healthBar) {
+    healthBar.style.position = "relative";
+    healthBar.style.overflow = "hidden";
+    healthBar.style.background = "#e5e7eb";
+    healthBar.innerHTML = `<div style="width:${pct}%;height:100%;background:${color};transition:width 0.25s ease,background 0.25s ease;"></div>`;
+  }
+  if (healthPercent) healthPercent.textContent = pctStr;
+
+  chrome.runtime.sendMessage({
+    type: "SNIPBOARD_ICON_UPDATE",
+    percentage: pct,
+    color,
+  });
 }
 
 async function updateSelectedCount() {
@@ -189,6 +223,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 document.addEventListener("DOMContentLoaded", () => {
   updateSelectedCount();
+  updateHealth();
   const selectControls = document.getElementById("selectControls");
   if (selectControls) selectControls.style.display = "none";
 
@@ -205,3 +240,4 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 });
+

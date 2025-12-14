@@ -151,6 +151,8 @@ window.__SNIPBOARD_STATE__ = state;
         return;
       }
       if (action === 'remove') {
+        const locked = isCurrentSectionLocked(clip.sectionId);
+        if (locked) return;
         if (!Number.isFinite(index)) return;
         const updated = [...clip.screenshots];
         updated.splice(index, 1);
@@ -365,6 +367,19 @@ window.__SNIPBOARD_STATE__ = state;
         event.preventDefault();
         event.stopPropagation();
         const menu = ensureScreenshotContextMenu();
+        const clip = getCurrentClip();
+        const locked = isCurrentSectionLocked(clip?.sectionId);
+        const removeBtn = menu.querySelector('[data-action="remove"]');
+        if (removeBtn) {
+          removeBtn.disabled = Boolean(locked);
+          if (locked) {
+            removeBtn.classList.add('disabled');
+            removeBtn.setAttribute('aria-disabled', 'true');
+          } else {
+            removeBtn.classList.remove('disabled');
+            removeBtn.removeAttribute('aria-disabled');
+          }
+        }
         menu.dataset.filename = file;
         menu.dataset.index = thumb.dataset.index;
         menu.style.left = `${event.pageX}px`;
@@ -673,9 +688,15 @@ window.__SNIPBOARD_STATE__ = state;
   function updateActiveSectionLabel() {
     if (!clipTabNameEl) return;
     const section = getCurrentSection();
+    const activeSectionId = getActiveSectionId();
     if (!section) {
-      clipTabNameEl.textContent = '';
-      if (clipTabPathEl) clipTabPathEl.textContent = '';
+      if (activeSectionId === 'all') {
+        clipTabNameEl.textContent = 'All';
+        if (clipTabPathEl) clipTabPathEl.textContent = '';
+      } else {
+        clipTabNameEl.textContent = '';
+        if (clipTabPathEl) clipTabPathEl.textContent = '';
+      }
       return;
     }
     // Sidebar header is derived exclusively from renderer state; avoid patching this from other modules.
@@ -794,14 +815,44 @@ window.__SNIPBOARD_STATE__ = state;
     await refreshFull(clip.id);
   }
 
+  const resolveNewClipSectionId = () => {
+    const activeSection = getActiveSectionId();
+    if (activeSection && activeSection !== 'all') return activeSection;
+    if (state.currentSectionId && state.currentSectionId !== 'all') return state.currentSectionId;
+    if (state.activeTabId && state.activeTabId !== 'all') return state.activeTabId;
+    return 'inbox';
+  };
+
+  const readClipboardText = async () => {
+    try {
+      if (typeof api.getClipboardText === 'function') {
+        const value = await api.getClipboardText();
+        if (typeof value === 'string') return value;
+      }
+    } catch (err) {
+      console.warn('[SnipBoard] Clipboard read via IPC failed', err);
+    }
+    try {
+      if (navigator?.clipboard?.readText) {
+        const value = await navigator.clipboard.readText();
+        if (typeof value === 'string') return value;
+      }
+    } catch (err) {
+      console.warn('[SnipBoard] Clipboard read via navigator failed', err);
+    }
+    return '';
+  };
+
   async function createNewClip() {
+    const sectionId = resolveNewClipSectionId();
+    const clipboardText = await readClipboardText();
     const clip = {
       title: '',
-      text: '',
+      text: clipboardText,
       notes: '',
       tags: [],
       screenshots: [],
-      sectionId: state.currentSectionId || state.activeTabId || 'inbox',
+      sectionId,
       capturedAt: Date.now(),
     };
     try {
@@ -815,6 +866,7 @@ window.__SNIPBOARD_STATE__ = state;
   }
 
   const sectionTabs = document.getElementById('sectionTabs');
+  const addTabBtn = document.getElementById('addTabBtn');
   const clipList = document.getElementById('clipList');
   const sectionSelect = document.getElementById('sectionSelect');
   if (sectionSelect) {
@@ -858,6 +910,11 @@ window.__SNIPBOARD_STATE__ = state;
   const searchInput = document.getElementById('searchInput');
   const tagFilterInput = document.getElementById('tagFilterInput');
   const sortMenu = document.getElementById('sortMenu');
+  const filterMenu = document.getElementById('filterMenu');
+  const sortToggleBtn = document.getElementById('sortToggleBtn');
+  const filterToggleBtn = document.getElementById('filterToggleBtn');
+  const filterApplyBtn = document.getElementById('filterApplyBtn');
+  const filterClearBtn = document.getElementById('filterClearBtn');
 
   function persistClipAppearance(entity, patch = {}) {
     if (!entity || !entity.id) return;
@@ -938,7 +995,7 @@ window.__SNIPBOARD_STATE__ = state;
     ? initTabs({
         state,
         ipc: { CHANNELS, invoke, safeInvoke },
-        dom: { sectionTabs },
+        dom: { sectionTabs, addTabBtn },
       })
     : null;
 
@@ -1189,22 +1246,96 @@ window.__SNIPBOARD_STATE__ = state;
   };
 
   const bindFilters = () => {
+    const closeMenus = () => {
+      if (sortMenu) sortMenu.classList.remove('is-open');
+      if (filterMenu) filterMenu.classList.remove('is-open');
+    };
+
     if (searchInput) {
       searchInput.addEventListener('input', () => {
-        state.searchQuery = searchInput.value.trim();
+        const value = searchInput.value.trim();
+        state.searchQuery = value;
+        state.searchText = value;
         clipsApi?.renderClipList?.();
       });
     }
+
+    const applyTagFilter = () => {
+      const value = tagFilterInput ? tagFilterInput.value.trim() : '';
+      state.tagFilter = value;
+      clipsApi?.renderClipList?.();
+    };
+
     if (tagFilterInput) {
-      tagFilterInput.addEventListener('input', () => {
-        state.tagFilter = tagFilterInput.value.trim();
-        clipsApi?.renderClipList?.();
+      tagFilterInput.addEventListener('input', applyTagFilter);
+    }
+
+    const handleSortChange = (value) => {
+      state.sortMode = value || 'default';
+      const selected = sortMenu?.querySelector(
+        `input[name="sortMode"][value="${state.sortMode}"]`
+      );
+      if (selected) selected.checked = true;
+      clipsApi?.renderClipList?.();
+    };
+
+    if (sortMenu) {
+      const radios = Array.from(sortMenu.querySelectorAll('input[name="sortMode"]'));
+      radios.forEach((radio) => {
+        radio.addEventListener('change', () => {
+          handleSortChange(radio.value);
+          closeMenus();
+        });
+      });
+      const initial = radios.find((radio) => radio.value === (state.sortMode || 'default')) || radios[0];
+      if (initial) initial.checked = true;
+    }
+
+    if (filterApplyBtn) {
+      filterApplyBtn.addEventListener('click', () => {
+        applyTagFilter();
+        closeMenus();
       });
     }
-    if (sortMenu) {
-      sortMenu.addEventListener('change', () => {
-        state.sortMode = sortMenu.value || 'default';
+
+    if (filterClearBtn) {
+      filterClearBtn.addEventListener('click', () => {
+        if (tagFilterInput) tagFilterInput.value = '';
+        state.tagFilter = '';
         clipsApi?.renderClipList?.();
+        closeMenus();
+      });
+    }
+
+    if (sortToggleBtn && sortMenu) {
+      sortToggleBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const willOpen = !sortMenu.classList.contains('is-open');
+        closeMenus();
+        if (willOpen) sortMenu.classList.add('is-open');
+      });
+    }
+
+    if (filterToggleBtn && filterMenu) {
+      filterToggleBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const willOpen = !filterMenu.classList.contains('is-open');
+        closeMenus();
+        if (willOpen) filterMenu.classList.add('is-open');
+      });
+    }
+
+    if (document) {
+      document.addEventListener('click', (event) => {
+        const target = event.target;
+        const inSortMenu = sortMenu && (sortMenu === target || sortMenu.contains(target));
+        const inFilterMenu = filterMenu && (filterMenu === target || filterMenu.contains(target));
+        const onToggle =
+          (sortToggleBtn && (sortToggleBtn === target || sortToggleBtn.contains(target))) ||
+          (filterToggleBtn && (filterToggleBtn === target || filterToggleBtn.contains(target)));
+        if (!inSortMenu && !inFilterMenu && !onToggle) {
+          closeMenus();
+        }
       });
     }
   };

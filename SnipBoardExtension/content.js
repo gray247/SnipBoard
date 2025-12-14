@@ -280,7 +280,7 @@
     if (!msg || !msg.type) return;
     if (msg.type === "SNIPBOARD_GET_ALL_MESSAGES") {
       sendResponse({ messages: safeGetAllMessages() });
-      return true;
+      return;
     }
     if (msg.type === "SNIPBOARD_SELECT_MODE_ON_V2") {
       selectedMessages = [];
@@ -288,13 +288,13 @@
       ensureUIBindings();
       activateSelectMode();
       sendResponse({ ok: true });
-      return true;
+      return;
     }
     if (msg.type === "SNIPBOARD_SELECT_MODE_OFF_AND_SAVE") {
       if (!selectedMessages.length) {
         cleanup();
         sendResponse({ ok: true, saved: false });
-        return true;
+        return;
       }
       const text = selectedMessages
         .map((m) => `${(m.role || "assistant").toUpperCase()}:\n${m.content || ""}`)
@@ -325,14 +325,61 @@
         });
       return true;
     }
+    if (msg.type === "TOGGLE_SELECT_MODE") {
+      if (!modeActive) {
+        selectedMessages = [];
+        selectedMap = new WeakMap();
+        ensureUIBindings();
+        activateSelectMode();
+        sendResponse?.({ ok: true, mode: "on" });
+        return;
+      }
+
+      // Turning off with a direct save from content.js
+      if (!selectedMessages.length) {
+        cleanup();
+        sendResponse?.({ ok: true, mode: "off", saved: false });
+        return;
+      }
+      const text = selectedMessages
+        .map((m) => `${(m.role || "assistant").toUpperCase()}:\n${m.content || ""}`)
+        .join("\n\n");
+      const title = `ChatGPT clip (${selectedMessages.length} message${selectedMessages.length === 1 ? "" : "s"})`;
+      const browserFetch =
+        globalThis.fetch ||
+        (typeof window !== "undefined" ? window.fetch : undefined) ||
+        (() => Promise.reject(new Error("Fetch API unavailable")));
+
+      browserFetch("http://127.0.0.1:4050/add-clip", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sectionId: "inbox",
+          title,
+          tags: [],
+          text,
+          sourceUrl: window.location.href,
+          sourceTitle: document.title || "",
+          capturedAt: Date.now(),
+        }),
+      })
+        .catch((err) => {
+          console.error("[SnipBoard] save failed:", err);
+        })
+        .finally(() => {
+          cleanup();
+        sendResponse?.({ ok: true, mode: "off", saved: true });
+      });
+      return;
+    }
     if (msg.type === "SNIPBOARD_GET_SELECTION") {
       sendResponse({ messages: selectedMessages.map((m) => ({ role: m.role, content: m.content })) });
-      return true;
+      return;
     }
     if (msg.type === "SNIPBOARD_STOP") {
       cleanup();
       sendResponse({ ok: true });
-      return true;
+      return;
     }
   });
 

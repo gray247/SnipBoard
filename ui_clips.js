@@ -241,10 +241,77 @@
     const renderClipList = () => {
       if (!clipListEl) return;
       clipListEl.innerHTML = '';
-      const clips = (app.clips || []).filter(
-        (clip) => getActiveSectionId() === 'all' || clip.sectionId === getActiveSectionId()
-      );
-      clips.forEach((clip) => {
+      const activeSectionId = getActiveSectionId();
+      const activeTab =
+        Array.isArray(app.tabs) && activeSectionId && activeSectionId !== 'all'
+          ? (app.tabs || []).find((tab) => tab.id === activeSectionId) || null
+          : null;
+      const searchQuery = (app.searchQuery || app.searchText || '').toLowerCase().trim();
+      const tagFilters = (app.tagFilter || '')
+        .split(',')
+        .map((tag) => tag.trim().toLowerCase())
+        .filter(Boolean);
+      const searchIndex = app.searchIndex instanceof Map ? app.searchIndex : null;
+      const normalizeTags = (tags) =>
+        Array.isArray(tags)
+          ? tags
+              .map((tag) => (tag ? String(tag).trim().toLowerCase() : ''))
+              .filter(Boolean)
+          : [];
+      const timestampForClip = (clip) => {
+        const ts = Number(clip?.updatedAt || clip?.capturedAt || clip?.createdAt || 0);
+        return Number.isFinite(ts) ? ts : 0;
+      };
+      const defaultOrderSort = (list) => {
+        if (!activeTab || !Array.isArray(activeTab.clipOrder) || !activeTab.clipOrder.length) {
+          return list.slice();
+        }
+        const orderMap = new Map(activeTab.clipOrder.map((id, idx) => [id, idx]));
+        return list.slice().sort((a, b) => {
+          const aIdx = orderMap.has(a.id) ? orderMap.get(a.id) : Number.MAX_SAFE_INTEGER;
+          const bIdx = orderMap.has(b.id) ? orderMap.get(b.id) : Number.MAX_SAFE_INTEGER;
+          if (aIdx !== bIdx) return aIdx - bIdx;
+          return 0;
+        });
+      };
+
+      const filtered = (app.clips || []).filter((clip) => {
+        if (activeSectionId !== 'all' && clip.sectionId !== activeSectionId) {
+          return false;
+        }
+        if (searchQuery) {
+          const haystack =
+            (searchIndex && searchIndex.get(clip.id)) ||
+            `${clip.title || ''} ${clip.text || ''} ${clip.notes || ''} ${
+              Array.isArray(clip.tags) ? clip.tags.join(' ') : ''
+            }`.toLowerCase();
+          if (!haystack.includes(searchQuery)) return false;
+        }
+        if (tagFilters.length) {
+          const clipTags = normalizeTags(clip.tags);
+          const matchesAll = tagFilters.every((tag) => clipTags.includes(tag));
+          if (!matchesAll) return false;
+        }
+        return true;
+      });
+
+      const sortMode = app.sortMode || 'default';
+      const sortedClips = (() => {
+        if (sortMode === 'newest') {
+          return filtered.slice().sort((a, b) => timestampForClip(b) - timestampForClip(a));
+        }
+        if (sortMode === 'oldest') {
+          return filtered.slice().sort((a, b) => timestampForClip(a) - timestampForClip(b));
+        }
+        if (sortMode === 'title') {
+          return filtered
+            .slice()
+            .sort((a, b) => (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' }));
+        }
+        return defaultOrderSort(filtered);
+      })();
+
+      sortedClips.forEach((clip) => {
         if (!doc) return;
         const row = doc.createElement('div');
         row.className = 'clip-row';

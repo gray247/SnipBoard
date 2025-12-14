@@ -47,41 +47,9 @@
       white-space: pre-wrap;
       font-family: monospace;
     }
-    #healthBarContainer {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      margin: 10px 0;
-    }
-    #healthBarContainer #healthBar {
-      flex: 1;
-      height: 10px;
-      border-radius: 999px;
-      background: #e5e7eb;
-      overflow: hidden;
-      position: relative;
-    }
-    #healthBarContainer #healthBar::after {
-      content: "";
-      position: absolute;
-      inset: 0;
-      width: 0%;
-      background: #22c55e;
-      transition: width 0.25s ease, background 0.25s ease;
-    }
-    #healthPercent {
-      font-size: 12px;
-      min-width: 42px;
-      text-align: right;
-    }
   </style>
 </head>
 <body>
-  <div id="healthBarContainer">
-    <div id="healthBar"></div>
-    <span id="healthPercent">0%</span>
-  </div>
-
   <label>Section</label>
   <select id="sectionSelect">
     <option value="inbox">Inbox</option>

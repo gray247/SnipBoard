@@ -472,7 +472,7 @@
     const map = new Map();
     (clips || []).forEach((clip) => {
       const tagsString = Array.isArray(clip.tags) ? clip.tags.join(" ") : "";
-      const entry = `${clip.title || ""} ${clip.text || ""} ${tagsString}`.toLowerCase();
+      const entry = `${clip.title || ""} ${clip.text || ""} ${clip.notes || ""} ${tagsString}`.toLowerCase();
       map.set(clip.id, entry);
     });
     return map;

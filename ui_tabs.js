@@ -7,6 +7,7 @@
     const app = state;
     const doc = global.document;
     const sectionTabs = dom.sectionTabs || (doc ? doc.getElementById('sectionTabs') : null);
+    const addTabBtn = dom.addTabBtn || (doc ? doc.getElementById('addTabBtn') : null);
     const tabContextMenu = dom.tabContextMenu || (doc ? doc.getElementById('tabContextMenu') : null);
     const tabChangeListeners = [];
     const CHANNELS = (ipc && ipc.CHANNELS) || {};
@@ -88,6 +89,18 @@
       const tab = getActiveTab();
       return tab && Array.isArray(tab.schema) && tab.schema.length ? tab.schema : [];
     };
+    const DEFAULT_SCHEMA =
+      (Array.isArray(global.SnipState?.DEFAULT_SCHEMA) && global.SnipState.DEFAULT_SCHEMA.length
+        ? global.SnipState.DEFAULT_SCHEMA
+        : []);
+    const slugifyTabName =
+      typeof global.SnipState?.slugifyTabName === 'function'
+        ? global.SnipState.slugifyTabName
+        : (value) => {
+            const base = (value || 'tab').toString().toLowerCase().trim();
+            const slug = base.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+            return slug || 'tab';
+          };
 
     let editorApi = null;
     let modalsApi = null;
@@ -98,6 +111,52 @@
 
     const setModalsApi = (api) => {
       modalsApi = api;
+    };
+
+    const promptForTabName = async () => {
+      if (modalsApi?.openPromptModal) {
+        return modalsApi.openPromptModal('Create new tab', '');
+      }
+      if (typeof global.prompt === 'function') {
+        return global.prompt('Create new tab', '') || '';
+      }
+      return '';
+    };
+
+    const createTab = async () => {
+      const response = await promptForTabName();
+      const name = cleanSectionName(response);
+      if (!name) return;
+      try {
+        const created = await safeInvoke(CHANNELS.CREATE_SECTION, name);
+        const tabId = (created && created.id) || slugifyTabName(name);
+        const schema =
+          Array.isArray(created?.schema) && created.schema.length
+            ? created.schema
+            : DEFAULT_SCHEMA.slice();
+        const newTab = {
+          id: tabId,
+          label: created?.name || name,
+          name: created?.name || name,
+          locked: Boolean(created?.locked),
+          exportPath: created?.exportPath || '',
+          exportFolder: created?.folder || created?.exportPath || '',
+          color: created?.color || '',
+          icon: created?.icon || '',
+          order: Array.isArray(app.tabs) ? app.tabs.length : 0,
+          schema,
+          clipOrder: [],
+        };
+        app.tabs = [...(app.tabs || []), newTab];
+        renderTabs();
+        setActiveTab(newTab.id);
+        const savedTabs = await persistTabsConfig();
+        if (!savedTabs) return;
+        notifySectionUpdate();
+      } catch (err) {
+        console.error('[SnipTabs] create tab failed', err);
+        global.alert?.('Unable to create tab.');
+      }
     };
 
     const onTabChange = (callback) => {
@@ -356,6 +415,14 @@
       dragHandlersBound = true;
     };
 
+    const bindCreateTabButton = () => {
+      if (!addTabBtn) return;
+      addTabBtn.addEventListener('click', (event) => {
+        event.preventDefault();
+        createTab();
+      });
+    };
+
     const setActiveTab = (tabId) => {
       const targetId = tabId || 'all';
       if (app.activeTabId === targetId) return;
@@ -372,6 +439,10 @@
     const renderTabs = () => {
       if (!sectionTabs) return;
       sectionTabs.innerHTML = '';
+
+      if (addTabBtn) {
+        sectionTabs.appendChild(addTabBtn);
+      }
 
       const renderButton = (tab, isAll = false) => {
         const el = doc ? doc.createElement('button') : null;
@@ -459,6 +530,7 @@
 
     ensureTabMenuHandlers();
     bindDragHandlers();
+    bindCreateTabButton();
 
     return {
       getActiveTab,
