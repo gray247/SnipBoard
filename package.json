@@ -28,12 +28,18 @@
   "build": {
     "appId": "com.snipboard.app",
     "productName": "SnipBoard",
+    "artifactName": "${productName}-${version}-${arch}.${ext}",
     "directories": {
       "output": "dist"
     },
     "files": [
       "**/*",
       "!{dist,release}/**",
+      "!tests/**",
+      "!scripts/**",
+      "!**/*.spec.*",
+      "!**/*.test.*",
+      "!README.md",
       "!.git/**",
       "!node_modules/.cache/**",
       "!**/*.log"
@@ -47,7 +53,7 @@
           ]
         }
       ],
-      "icon": "SnipBoardExtension/icons/icon-green-128.png"
+      "icon": "SnipBoardExtension/icons/icon.ico"
     },
     "nsis": {
       "oneClick": true,
